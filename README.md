@@ -6,7 +6,7 @@ Welcome to the **FinOps Toolkit**—the only toolkit that helps you understand y
 
 A growing collection of Python scripts that use the AWS CLI to pull cost and usage data from your AWS account. The toolkit is designed to help you slice and dice your cloud spend by service, account, or tag, with enough flexibility to satisfy even the most demanding bean counter.
 
-Unlike cobbling together your own scripts in the dead of night, or surrendering to the tyranny of yet another SaaS tool, the FinOps Toolkit aims for the happy middle ground: standardised, collaborative, and open—yet infinitely adaptable.
+Unlike cobbling together your own scripts in the dead of night, or surrendering to the tyranny of yet another SaaS tool, the FinOps Toolkit aims for the happy middle ground: standardised, collaborative, and open, yet infinitely adaptable.
 
 ## Features
 
