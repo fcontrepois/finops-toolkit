@@ -1,27 +1,81 @@
 # cloud-cost-explorer.py
+#
+# MIT License
+#
+# Copyright (c) 2025 Frank Contrepois
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 """
-MIT License
+# Usage Examples and Tests
 
-Copyright (c) 2025 Frank Contrepois
+# 1. Minimal required: daily granularity, default group (SERVICE)
+python aws/cost-and-usage.py --granularity daily
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+# 2. All granularities
+python aws/cost-and-usage.py --granularity hourly
+python aws/cost-and-usage.py --granularity daily
+python aws/cost-and-usage.py --granularity monthly
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+# 3. All intervals
+python aws/cost-and-usage.py --granularity daily --interval day
+python aws/cost-and-usage.py --granularity daily --interval week
+python aws/cost-and-usage.py --granularity daily --interval month
+python aws/cost-and-usage.py --granularity daily --interval quarter
+python aws/cost-and-usage.py --granularity daily --interval semester
+python aws/cost-and-usage.py --granularity daily --interval year
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+# 4. Include today
+python aws/cost-and-usage.py --granularity daily --interval week --include-today
+
+# 5. All groupings
+python aws/cost-and-usage.py --granularity daily --group SERVICE
+python aws/cost-and-usage.py --granularity daily --group LINKED_ACCOUNT
+python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment
+
+# 6. All output formats
+python aws/cost-and-usage.py --granularity daily --output-format csv
+python aws/cost-and-usage.py --granularity daily --output-format json
+
+# 7. Group by tag with tag-key
+python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Owner
+
+# 8. Full power: combine all flags
+python aws/cost-and-usage.py --granularity hourly --interval day --include-today --group TAG --tag-key Project --output-format json
+
+# 9. Redirect output to file
+python aws/cost-and-usage.py --granularity monthly --group SERVICE --output-format csv > my-costs.csv
+
+# 10. Help
+python aws/cost-and-usage.py --help
+
+# 11. Error: missing tag-key
+python aws/cost-and-usage.py --granularity daily --group TAG
+
+# 12. Error: invalid group
+python aws/cost-and-usage.py --granularity daily --group INVALID
+
+# 13. Error: invalid interval
+python aws/cost-and-usage.py --granularity daily --interval nonsense
+
+# 14. Error: invalid output format
+python aws/cost-and-usage.py --granularity daily --output-format nonsense
 """
 
 import argparse
