@@ -45,19 +45,74 @@ Unlike cobbling together your own scripts in the dead of night, or surrendering 
    python aws/cost-and-usage.py --granularity monthly --group LINKED_ACCOUNT > costs.csv
    ```
 
-## Arguments
+## Arguments and Examples
 
-- `--granularity`: hourly, daily, or monthly (required)
-- `--interval`: day, week, month, quarter, semester, year (optional)
-- `--include-today`: include today in the interval (optional)
-- `--group`: SERVICE, LINKED_ACCOUNT, or TAG (default: SERVICE)
-- `--tag-key`: Tag key to group by (required if grouping by TAG)
-- `--output-format`: csv or json (default: csv)
+Below are all the flags, with examples to make your testing as painless as possible.
 
-## Example: Group by Tag
+### `--granularity`
+Granularity of the data: `hourly`, `daily`, or `monthly` (required).
 
 ```bash
-python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment --output-format json
+python aws/cost-and-usage.py --granularity hourly --group SERVICE
+python aws/cost-and-usage.py --granularity daily --group SERVICE
+python aws/cost-and-usage.py --granularity monthly --group SERVICE
+```
+
+### `--interval`
+Interval to report: `day`, `week`, `month`, `quarter`, `semester`, or `year` (optional).
+
+```bash
+python aws/cost-and-usage.py --granularity daily --interval week --group SERVICE
+python aws/cost-and-usage.py --granularity monthly --interval year --group SERVICE
+```
+
+### `--include-today`
+Include today in the interval (optional; because sometimes you want to see the damage as it happens).
+
+```bash
+python aws/cost-and-usage.py --granularity daily --interval week --include-today --group SERVICE
+```
+
+### `--group`
+Group costs by `SERVICE`, `LINKED_ACCOUNT`, or `TAG` (default: `SERVICE`).
+
+```bash
+python aws/cost-and-usage.py --granularity daily --group SERVICE
+python aws/cost-and-usage.py --granularity daily --group LINKED_ACCOUNT
+python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment
+```
+
+### `--tag-key`
+Tag key to group by (required if grouping by TAG). Choose your favourite tag, or your least favourite.
+
+```bash
+python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment
+python aws/cost-and-usage.py --granularity monthly --group TAG --tag-key Owner
+```
+
+### `--output-format`
+Output format: `csv` or `json` (default: `csv`). For those who like their data raw, or at least semi-structured.
+
+```bash
+python aws/cost-and-usage.py --granularity daily --output-format csv
+python aws/cost-and-usage.py --granularity daily --output-format json
+```
+
+### Combining Flags
+
+Because you are a power user (or at least aspire to be):
+
+```bash
+python aws/cost-and-usage.py --granularity hourly --interval day --include-today --group TAG --tag-key Project --output-format json
+```
+
+### Redirecting Output
+
+Send output to a file, or pipe it into oblivion:
+
+```bash
+python aws/cost-and-usage.py --granularity monthly --group SERVICE --output-format csv > my-costs.csv
+python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Owner --output-format json > tag-costs.json
 ```
 
 ## Roadmap
@@ -66,9 +121,9 @@ This toolkit is just getting started. Over time, expect a growing suite of scrip
 
 ## Troubleshooting
 
-- If you see errors about AWS CLI, check your credentials and permissions.
+- If you see errors about AWS CLI, check your credentials, permissions, and whether you have angered the cloud gods.
 - If you see only zeros, it’s either a good day, or you’ve filtered yourself into oblivion.
-- For any other issues, raise an issue or consult your nearest rubber duck.
+- For any other issues, raise an issue, consult your nearest rubber duck, or take a brisk walk.
 
 ## License
 
@@ -80,4 +135,4 @@ Pull requests, witty comments, and bug reports are all welcome. If you can make 
 
 ---
 
-*Because understanding your AWS bill shouldn’t require a séance, a therapist, or a second mortgage.*
+_Because understanding your AWS bill shouldn’t require a séance, a therapist, or a second mortgage._
