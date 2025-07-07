@@ -1,20 +1,19 @@
-# FinOps Toolkit: AWS Cost and Usage
+# FinOps Toolkit: AWS Cost and Usage (and Forecasting)
 
-Welcome to the **FinOps Toolkit**—the only toolkit that helps you understand your AWS bill without the need for a PhD in hieroglyphics, a stiff drink, or a séance. This repository contains scripts to explore, analyse, and (hopefully) enjoy your AWS Cost and Usage data (for now), all from the comfort of your terminal.
+Welcome to the **FinOps Toolkit**—the only toolkit that helps you understand, predict, and perhaps even laugh at your AWS bill, all without the need for a PhD in hieroglyphics, a stiff drink, or a séance. This repository contains scripts to explore, analyse, and forecast your AWS Cost and Usage data (for now), all from the comfort of your terminal.
 
 ## What Is This?
 
-A growing collection of Python scripts that use the AWS CLI to pull cost and usage data from your AWS account. The toolkit is designed to help you slice and dice your cloud spend by service, account, or tag, with enough flexibility to satisfy even the most demanding bean counter.
-
-Unlike cobbling together your own scripts in the dead of night, or surrendering to the tyranny of yet another SaaS tool, the FinOps Toolkit aims for the happy middle ground: standardised, collaborative, and open, yet infinitely adaptable.
+A growing collection of Python scripts that use the AWS CLI to pull cost and usage data from your AWS account, then help you slice, dice, and even forecast your cloud spend by service, account, or tag. The toolkit is designed for those who want more rigour than a homebrew spreadsheet, but more flexibility than a SaaS “solution” that thinks customisation means changing the logo.
 
 ## Features
 
-- **Flexible granularity:** Choose between hourly, daily, or monthly data. (Because sometimes you want to know exactly when your budget went up in smoke.)
-- **Custom intervals:** Report by day, week, month, quarter, semester, or year. Or just pick “today” if you like living on the edge.
+- **Flexible granularity:** Choose between hourly, daily, or monthly data. Sometimes you need to know exactly when your budget went up in smoke.
+- **Custom intervals:** Report by day, week, month, quarter, semester, or year. Or just pick “today” if you like living dangerously.
 - **Group by:** Service, linked account, or tag. Group therapy for your cloud costs.
-- **Output formats:** CSV or JSON, always delivered to standard out, so you can redirect, pipe, or just stare at the numbers in awe.
-- **Extensible:** New scripts will be added over time, working together to make FinOps implementation more standardised than DIY, yet far more flexible than any boxed-in tool.
+- **Forecasting:** Predict your future AWS costs using three forecasting methods—Simple Moving Average, Exponential Smoothing, and Facebook Prophet. Peer into the financial abyss with style.
+- **Output formats:** CSV or JSON, always delivered to standard out, so you can redirect, pipe, or simply stare at the numbers in awe.
+- **Extensible:** New scripts will be added over time, working together to make FinOps more standardised than DIY, yet far more flexible than any boxed-in tool.
 - **No nonsense:** No web dashboards, no vendor lock-in, and absolutely no blockchain.
 
 ## Quickstart
@@ -23,9 +22,10 @@ Unlike cobbling together your own scripts in the dead of night, or surrendering 
 
    - Python 3.7+
    - AWS CLI configured with permissions for Cost Explorer
+   - Prophet (for forecasting; install with `pip install prophet` or use conda)
    - Your favourite terminal
 
-2. **Run the script**
+2. **Run the cost and usage script**
 
    ```bash
    python aws/cost-and-usage.py --granularity daily --interval month --group SERVICE --output-format csv
@@ -37,82 +37,100 @@ Unlike cobbling together your own scripts in the dead of night, or surrendering 
    python aws/cost-and-usage.py --help
    ```
 
-3. **Sample Output**
-
    Redirect CSV output to a file, or pipe it to your favourite spreadsheet tool:
 
    ```bash
    python aws/cost-and-usage.py --granularity monthly --group LINKED_ACCOUNT > costs.csv
    ```
 
+3. **Forecast future costs**
+
+   ```bash
+   python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
+   ```
+
+   Or, pipe directly from cost-and-usage.py:
+
+   ```bash
+   python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
+   ```
+
 ## Arguments and Examples
 
-Below are all the flags, with examples to make your testing as painless as possible.
+### cost-and-usage.py
 
-### `--granularity`
+#### `--granularity`
 Granularity of the data: `hourly`, `daily`, or `monthly` (required).
 
 ```bash
 python aws/cost-and-usage.py --granularity hourly --group SERVICE
-python aws/cost-and-usage.py --granularity daily --group SERVICE
-python aws/cost-and-usage.py --granularity monthly --group SERVICE
 ```
 
-### `--interval`
+#### `--interval`
 Interval to report: `day`, `week`, `month`, `quarter`, `semester`, or `year` (optional).
 
 ```bash
 python aws/cost-and-usage.py --granularity daily --interval week --group SERVICE
-python aws/cost-and-usage.py --granularity monthly --interval year --group SERVICE
 ```
 
-### `--include-today`
-Include today in the interval (optional; because sometimes you want to see the damage as it happens).
+#### `--include-today`
+Include today in the interval (optional).
 
 ```bash
 python aws/cost-and-usage.py --granularity daily --interval week --include-today --group SERVICE
 ```
 
-### `--group`
+#### `--group`
 Group costs by `SERVICE`, `LINKED_ACCOUNT`, or `TAG` (default: `SERVICE`).
 
 ```bash
-python aws/cost-and-usage.py --granularity daily --group SERVICE
-python aws/cost-and-usage.py --granularity daily --group LINKED_ACCOUNT
 python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment
 ```
 
-### `--tag-key`
-Tag key to group by (required if grouping by TAG). Choose your favourite tag, or your least favourite.
+#### `--output-format`
+Output format: `csv` or `json` (default: `csv`).
 
 ```bash
-python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment
-python aws/cost-and-usage.py --granularity monthly --group TAG --tag-key Owner
-```
-
-### `--output-format`
-Output format: `csv` or `json` (default: `csv`). For those who like their data raw, or at least semi-structured.
-
-```bash
-python aws/cost-and-usage.py --granularity daily --output-format csv
 python aws/cost-and-usage.py --granularity daily --output-format json
 ```
 
-### Combining Flags
+### forecast-costs.py
 
-Because you are a power user (or at least aspire to be):
+#### `--input`
+Input CSV file (or pipe from standard input).
+
+#### `--date-column` and `--value-column`
+Specify the date and value columns from your cost data.
+
+#### Forecasting methods and parameters
+
+- `--method` Choose from `all`, `sma`, `es`, `prophet`
+- `--sma-window` Window size for Simple Moving Average (default: 7)
+- `--es-alpha` Smoothing factor for Exponential Smoothing (default: 0.5)
+- Prophet options:
+    - `--prophet-daily-seasonality` (default: True)
+    - `--prophet-yearly-seasonality` (default: True)
+    - `--prophet-weekly-seasonality` (default: False)
+    - `--prophet-changepoint-prior-scale` (default: 0.05)
+    - `--prophet-seasonality-prior-scale` (default: 10.0)
+
+#### Examples
 
 ```bash
-python aws/cost-and-usage.py --granularity hourly --interval day --include-today --group TAG --tag-key Project --output-format json
-```
+# Forecast from CSV file (default parameters)
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
 
-### Redirecting Output
+# Use a custom SMA window
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
 
-Send output to a file, or pipe it into oblivion:
+# Use a custom ES alpha
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
 
-```bash
-python aws/cost-and-usage.py --granularity monthly --group SERVICE --output-format csv > my-costs.csv
-python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Owner --output-format json > tag-costs.json
+# Use custom Prophet parameters
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1 --prophet-seasonality-prior-scale 5.0
+
+# Pipe cost-and-usage.py straight into forecast-costs.py
+python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all --sma-window 10 --es-alpha 0.7
 ```
 
 ## Roadmap
@@ -122,6 +140,7 @@ This toolkit is just getting started. Over time, expect a growing suite of scrip
 ## Troubleshooting
 
 - If you see errors about AWS CLI, check your credentials, permissions, and whether you have angered the cloud gods.
+- If Prophet complains, try installing it with conda, and make sure `pystan` is installed too.
 - If you see only zeros, it’s either a good day, or you’ve filtered yourself into oblivion.
 - For any other issues, raise an issue, consult your nearest rubber duck, or take a brisk walk.
 
