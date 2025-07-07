@@ -1,5 +1,5 @@
-# cloud-cost-explorer.py
-#
+# aws/cost-and-usage.py
+
 # MIT License
 #
 # Copyright (c) 2025 Frank Contrepois
@@ -76,6 +76,19 @@ python aws/cost-and-usage.py --granularity daily --interval nonsense
 
 # 14. Error: invalid output format
 python aws/cost-and-usage.py --granularity daily --output-format nonsense
+
+# 15. Custom metric (only one allowed)
+python aws/cost-and-usage.py --granularity daily --metrics UnblendedCost
+python aws/cost-and-usage.py --granularity daily --metrics BlendedCost
+python aws/cost-and-usage.py --granularity daily --metrics AmortizedCost
+python aws/cost-and-usage.py --granularity daily --metrics NetUnblendedCost
+python aws/cost-and-usage.py --granularity daily --metrics NetAmortizedCost
+python aws/cost-and-usage.py --granularity daily --metrics UsageQuantity
+python aws/cost-and-usage.py --granularity daily --metrics NormalizedUsageAmount
+
+# 16. Error: multiple metrics not allowed
+python aws/cost-and-usage.py --granularity daily --metrics UnblendedCost,BlendedCost
+
 """
 
 import argparse
@@ -84,6 +97,17 @@ import json
 import sys
 import csv
 from datetime import datetime, timedelta, date
+
+# List of valid AWS Cost Explorer metrics as of 2025
+VALID_METRICS = [
+    "BlendedCost",
+    "UnblendedCost",
+    "AmortizedCost",
+    "NetAmortizedCost",
+    "NetUnblendedCost",
+    "UsageQuantity",
+    "NormalizedUsageAmount"
+]
 
 def run_aws_cli(cmd):
     try:
@@ -152,14 +176,14 @@ def get_date_range(granularity, interval, include_today):
             raise ValueError("Invalid interval")
         if interval != "day":
             end = now + timedelta(days=1) if include_today else now
-        if granularity == "HOURLY":
-            start_dt = datetime.combine(start, datetime.min.time())
-            end_dt = datetime.combine(end, datetime.min.time())
-            return format_aws_datetime(start_dt), format_aws_datetime(end_dt)
-        else:
-            return str(start), str(end)
+            if granularity == "HOURLY":
+                start_dt = datetime.combine(start, datetime.min.time())
+                end_dt = datetime.combine(end, datetime.min.time())
+                return format_aws_datetime(start_dt), format_aws_datetime(end_dt)
+            else:
+                return str(start), str(end)
 
-def fetch_costs(start, end, group_by, granularity):
+def fetch_costs(start, end, group_by, granularity, metric):
     all_results = []
     next_token = None
     while True:
@@ -167,9 +191,10 @@ def fetch_costs(start, end, group_by, granularity):
             "aws", "ce", "get-cost-and-usage",
             "--time-period", f"Start={start},End={end}",
             "--granularity", granularity,
-            "--metrics", "UnblendedCost",
-            "--group-by", f"Type={group_by['Type']},Key={group_by['Key']}"
+            "--metrics", metric
         ]
+        if group_by:
+            cmd += ["--group-by", f"Type={group_by['Type']},Key={group_by['Key']}"]
         if next_token:
             cmd += ["--starting-token", next_token]
         result = run_aws_cli(cmd)
@@ -179,20 +204,37 @@ def fetch_costs(start, end, group_by, granularity):
             break
     return {'ResultsByTime': all_results}
 
-def print_csv_summary(results, group_key, fileobj=sys.stdout):
+def print_csv_summary(results, group_key, metric, fileobj=sys.stdout):
     writer = csv.writer(fileobj)
-    header = ["PeriodStart", group_key, "UnblendedCost"]
+    header = ["PeriodStart", group_key, metric]
     writer.writerow(header)
     for time_period in results['ResultsByTime']:
         period_start = time_period['TimePeriod']['Start']
         for group in time_period['Groups']:
             key = group['Keys'][0]
-            amount = group['Metrics']['UnblendedCost']['Amount']
-            writer.writerow([period_start, key, f"{float(amount):.6f}"])
+            amount = group['Metrics'].get(metric, {}).get('Amount', '')
+            try:
+                amount = f"{float(amount):.6f}"
+            except Exception:
+                pass
+            writer.writerow([period_start, key, amount])
 
 def print_json_summary(results, fileobj=sys.stdout):
     json.dump(results, fileobj, indent=2)
     fileobj.write("\n")
+
+def parse_metric(metric_str):
+    if not metric_str:
+        return "UnblendedCost"
+    metrics = [m.strip() for m in metric_str.split(",") if m.strip()]
+    if len(metrics) != 1:
+        print("Error: Only one metric can be specified at a time.", file=sys.stderr)
+        sys.exit(1)
+    m = metrics[0]
+    if m not in VALID_METRICS:
+        print(f"Error: Invalid metric '{m}'. Valid options: {', '.join(VALID_METRICS)}", file=sys.stderr)
+        sys.exit(1)
+    return m
 
 def main():
     parser = argparse.ArgumentParser(
@@ -221,6 +263,10 @@ def main():
     parser.add_argument(
         "--output-format", choices=["csv", "json"], default="csv",
         help="Output format: csv or json (default: csv, always prints to standard out)"
+    )
+    parser.add_argument(
+        "--metrics", type=str, default="UnblendedCost",
+        help=f"Metric to retrieve (default: UnblendedCost). Valid options: {', '.join(VALID_METRICS)}"
     )
     args = parser.parse_args()
 
@@ -253,10 +299,12 @@ def main():
         print("Invalid group type.", file=sys.stderr)
         sys.exit(1)
 
-    results = fetch_costs(start, end, group_by, granularity)
+    metric = parse_metric(args.metrics)
+
+    results = fetch_costs(start, end, group_by, granularity, metric)
 
     if args.output_format == "csv":
-        print_csv_summary(results, group_key)
+        print_csv_summary(results, group_key, metric)
     elif args.output_format == "json":
         print_json_summary(results)
     else:
@@ -265,4 +313,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
