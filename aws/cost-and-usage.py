@@ -69,16 +69,19 @@ python aws/cost-and-usage.py --help
 # 11. Error: missing tag-key
 python aws/cost-and-usage.py --granularity daily --group TAG
 
-# 12. Error: invalid group
+# 12. Error: --tag-key used without --group TAG
+python aws/cost-and-usage.py --granularity daily --tag-key Owner
+
+# 13. Error: invalid group
 python aws/cost-and-usage.py --granularity daily --group INVALID
 
-# 13. Error: invalid interval
+# 14. Error: invalid interval
 python aws/cost-and-usage.py --granularity daily --interval nonsense
 
-# 14. Error: invalid output format
+# 15. Error: invalid output format
 python aws/cost-and-usage.py --granularity daily --output-format nonsense
 
-# 15. Custom metric (only one allowed)
+# 16. Custom metric (only one allowed)
 python aws/cost-and-usage.py --granularity daily --metrics UnblendedCost
 python aws/cost-and-usage.py --granularity daily --metrics BlendedCost
 python aws/cost-and-usage.py --granularity daily --metrics AmortizedCost
@@ -87,8 +90,14 @@ python aws/cost-and-usage.py --granularity daily --metrics NetAmortizedCost
 python aws/cost-and-usage.py --granularity daily --metrics UsageQuantity
 python aws/cost-and-usage.py --granularity daily --metrics NormalizedUsageAmount
 
-# 16. Error: multiple metrics not allowed
+# 17. Error: multiple metrics not allowed
 python aws/cost-and-usage.py --granularity daily --metrics UnblendedCost,BlendedCost
+
+# 18. Custom date range
+python aws/cost-and-usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
+
+# 19. Verbose pagination
+python aws/cost-and-usage.py --granularity daily --group SERVICE --verbose
 
 """
 
@@ -108,6 +117,16 @@ VALID_METRICS = [
     "UsageQuantity",
     "NormalizedUsageAmount"
 ]
+
+METRIC_UNITS = {
+    "BlendedCost": "USD",
+    "UnblendedCost": "USD",
+    "AmortizedCost": "USD",
+    "NetAmortizedCost": "USD",
+    "NetUnblendedCost": "USD",
+    "UsageQuantity": "Hours",
+    "NormalizedUsageAmount": "NormalizedUnits"
+}
 
 def run_aws_cli(cmd):
     try:
@@ -200,11 +219,30 @@ def fetch_costs(start, end, group_by, granularity, metric, verbose=False):
         next_token = result.get('NextPageToken')
         if not next_token:
             break
+        page += 1
     return {'ResultsByTime': all_results}
+
+def print_csv_summary(results, group_key, metric, fileobj=sys.stdout):
+    # Output is grouped by group_key (e.g. Service, Account, Tag)
+    unit = METRIC_UNITS.get(metric, "")
+    header = ["PeriodStart", group_key, f"values ({unit})"]
+    writer = csv.writer(fileobj)
+    writer.writerow(header)
+    for time_period in results['ResultsByTime']:
+        period_start = time_period['TimePeriod']['Start']
+        for group in time_period['Groups']:
+            key = group['Keys'][0]
+            amount = group['Metrics'].get(metric, {}).get('Amount', '')
+            try:
+                amount = f"{float(amount):.6f}"
+            except Exception:
+                pass
+            writer.writerow([period_start, key, amount])
 
 def print_csv_summary_all(results, metric, fileobj=sys.stdout):
     # Output is a total across all groups for each period
-    header = ["PeriodStart", "TotalValue"]  # Clarified header
+    unit = METRIC_UNITS.get(metric, "")
+    header = ["PeriodStart", f"TotalValue ({unit})"]
     writer = csv.writer(fileobj)
     writer.writerow(header)
     for time_period in results['ResultsByTime']:
@@ -215,22 +253,6 @@ def print_csv_summary_all(results, metric, fileobj=sys.stdout):
         except Exception:
             pass
         writer.writerow([period_start, amount])
-
-
-# --- ADDED: print_csv_summary for ALL group ---
-def print_csv_summary_all(results, metric, fileobj=sys.stdout):
-    writer = csv.writer(fileobj)
-    header = ["PeriodStart", "values"]
-    writer.writerow(header)
-    for time_period in results['ResultsByTime']:
-        period_start = time_period['TimePeriod']['Start']
-        amount = time_period['Total'].get(metric, {}).get('Amount', '')
-        try:
-            amount = f"{float(amount):.6f}"
-        except Exception:
-            pass
-        writer.writerow([period_start, amount])
-# --- END ADDED ---
 
 def print_json_summary(results, fileobj=sys.stdout):
     json.dump(results, fileobj, indent=2)
@@ -248,6 +270,13 @@ def parse_metric(metric_str):
         print(f"Error: Invalid metric '{m}'. Valid options: {', '.join(VALID_METRICS)}", file=sys.stderr)
         sys.exit(1)
     return m
+
+def parse_date(date_str):
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except Exception:
+        print(f"Error: Invalid date format '{date_str}'. Use YYYY-MM-DD.", file=sys.stderr)
+        sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -282,14 +311,23 @@ def main():
         help=f"Metric to retrieve (default: UnblendedCost). Valid options: {', '.join(VALID_METRICS)}"
     )
     parser.add_argument(
-        "--verbose", action="store_true", 
-        help="Print debug info (pagination, etc.)")
-    
+        "--start", type=str, default=None,
+        help="Start date (YYYY-MM-DD). If set with --end, overrides interval logic."
+    )
+    parser.add_argument(
+        "--end", type=str, default=None,
+        help="End date (YYYY-MM-DD). If set with --start, overrides interval logic."
+    )
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help="Print debug info (pagination, etc.)"
+    )
     args = parser.parse_args()
-    if args.tag_key and args.group != "TAG":
-    print("Error: --tag-key can only be used with --group TAG.", file=sys.stderr)
-    sys.exit(1)
 
+    # Error if --tag-key is used without --group TAG
+    if args.tag_key and args.group != "TAG":
+        print("Error: --tag-key can only be used with --group TAG.", file=sys.stderr)
+        sys.exit(1)
 
     granularity_map = {
         "hourly": "HOURLY",
@@ -298,11 +336,16 @@ def main():
     }
     granularity = granularity_map[args.granularity]
 
-    try:
-        start, end = get_date_range(granularity, args.interval, args.include_today)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Support for custom date range
+    if args.start and args.end:
+        start = args.start
+        end = args.end
+    else:
+        try:
+            start, end = get_date_range(granularity, args.interval, args.include_today)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     metric = parse_metric(args.metrics)
 
@@ -312,7 +355,7 @@ def main():
             sys.exit(1)
         group_by = {"Type": "TAG", "Key": args.tag_key}
         group_key = f"Tag:{args.tag_key}"
-        results = fetch_costs(start, end, group_by, granularity, metric)
+        results = fetch_costs(start, end, group_by, granularity, metric, args.verbose)
         if args.output_format == "csv":
             print_csv_summary(results, group_key, metric)
         elif args.output_format == "json":
@@ -323,7 +366,7 @@ def main():
     elif args.group == "SERVICE":
         group_by = {"Type": "DIMENSION", "Key": "SERVICE"}
         group_key = "Service"
-        results = fetch_costs(start, end, group_by, granularity, metric)
+        results = fetch_costs(start, end, group_by, granularity, metric, args.verbose)
         if args.output_format == "csv":
             print_csv_summary(results, group_key, metric)
         elif args.output_format == "json":
@@ -334,7 +377,7 @@ def main():
     elif args.group == "LINKED_ACCOUNT":
         group_by = {"Type": "DIMENSION", "Key": "LINKED_ACCOUNT"}
         group_key = "Account"
-        results = fetch_costs(start, end, group_by, granularity, metric)
+        results = fetch_costs(start, end, group_by, granularity, metric, args.verbose)
         if args.output_format == "csv":
             print_csv_summary(results, group_key, metric)
         elif args.output_format == "json":
@@ -342,9 +385,8 @@ def main():
         else:
             print("Invalid output format.", file=sys.stderr)
             sys.exit(1)
-    # --- ADDED: ALL group logic ---
     elif args.group == "ALL":
-        results = fetch_costs(start, end, None, granularity, metric)
+        results = fetch_costs(start, end, None, granularity, metric, args.verbose)
         if args.output_format == "csv":
             print_csv_summary_all(results, metric)
         elif args.output_format == "json":
@@ -352,7 +394,6 @@ def main():
         else:
             print("Invalid output format.", file=sys.stderr)
             sys.exit(1)
-    # --- END ADDED ---
     else:
         print("Invalid group type.", file=sys.stderr)
         sys.exit(1)
