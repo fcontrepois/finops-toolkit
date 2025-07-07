@@ -26,78 +26,75 @@
 # Usage Examples and Tests
 
 # 1. Minimal required: daily granularity, default group (SERVICE)
-python aws/cost-and-usage.py --granularity daily
+python aws/cost_and_usage.py --granularity daily
 
 # 2. All granularities
-python aws/cost-and-usage.py --granularity hourly
-python aws/cost-and-usage.py --granularity daily
-python aws/cost-and-usage.py --granularity monthly
+python aws/cost_and_usage.py --granularity hourly
+python aws/cost_and_usage.py --granularity daily
+python aws/cost_and_usage.py --granularity monthly
 
 # 3. All intervals
-python aws/cost-and-usage.py --granularity daily --interval day
-python aws/cost-and-usage.py --granularity daily --interval week
-python aws/cost-and-usage.py --granularity daily --interval month
-python aws/cost-and-usage.py --granularity daily --interval quarter
-python aws/cost-and-usage.py --granularity daily --interval semester
-python aws/cost-and-usage.py --granularity daily --interval year
+python aws/cost_and_usage.py --granularity daily --interval day
+python aws/cost_and_usage.py --granularity daily --interval week
+python aws/cost_and_usage.py --granularity daily --interval month
+python aws/cost_and_usage.py --granularity daily --interval quarter
+python aws/cost_and_usage.py --granularity daily --interval semester
+python aws/cost_and_usage.py --granularity daily --interval year
 
 # 4. Include today
-python aws/cost-and-usage.py --granularity daily --interval week --include-today
+python aws/cost_and_usage.py --granularity daily --interval week --include-today
 
 # 5. All groupings
-python aws/cost-and-usage.py --granularity daily --group SERVICE
-python aws/cost-and-usage.py --granularity daily --group LINKED_ACCOUNT
-python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment
-python aws/cost-and-usage.py --granularity daily --group ALL
+python aws/cost_and_usage.py --granularity daily --group SERVICE
+python aws/cost_and_usage.py --granularity daily --group LINKED_ACCOUNT
+python aws/cost_and_usage.py --granularity daily --group TAG --tag-key Environment
+python aws/cost_and_usage.py --granularity daily --group ALL
 
 # 6. All output formats
-python aws/cost-and-usage.py --granularity daily --output-format csv
-python aws/cost-and-usage.py --granularity daily --output-format json
+python aws/cost_and_usage.py --granularity daily --output-format csv
+python aws/cost_and_usage.py --granularity daily --output-format json
 
 # 7. Group by tag with tag-key
-python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Owner
+python aws/cost_and_usage.py --granularity daily --group TAG --tag-key Owner
 
 # 8. Full power: combine all flags
-python aws/cost-and-usage.py --granularity hourly --interval day --include-today --group TAG --tag-key Project --output-format json
+python aws/cost_and_usage.py --granularity hourly --interval day --include-today --group TAG --tag-key Project --output-format json
 
 # 9. Redirect output to file
-python aws/cost-and-usage.py --granularity monthly --group SERVICE --output-format csv > my-costs.csv
+python aws/cost_and_usage.py --granularity monthly --group SERVICE --output-format csv > my-costs.csv
 
 # 10. Help
-python aws/cost-and-usage.py --help
+python aws/cost_and_usage.py --help
 
 # 11. Error: missing tag-key
-python aws/cost-and-usage.py --granularity daily --group TAG
+python aws/cost_and_usage.py --granularity daily --group TAG
 
 # 12. Error: --tag-key used without --group TAG
-python aws/cost-and-usage.py --granularity daily --tag-key Owner
+python aws/cost_and_usage.py --granularity daily --tag-key Owner
 
 # 13. Error: invalid group
-python aws/cost-and-usage.py --granularity daily --group INVALID
+python aws/cost_and_usage.py --granularity daily --group INVALID
 
 # 14. Error: invalid interval
-python aws/cost-and-usage.py --granularity daily --interval nonsense
+python aws/cost_and_usage.py --granularity daily --interval nonsense
 
 # 15. Error: invalid output format
-python aws/cost-and-usage.py --granularity daily --output-format nonsense
+python aws/cost_and_usage.py --granularity daily --output-format nonsense
 
 # 16. Custom metric (only one allowed)
-python aws/cost-and-usage.py --granularity daily --metrics UnblendedCost
-python aws/cost-and-usage.py --granularity daily --metrics BlendedCost
-python aws/cost-and-usage.py --granularity daily --metrics AmortizedCost
-python aws/cost-and-usage.py --granularity daily --metrics NetUnblendedCost
-python aws/cost-and-usage.py --granularity daily --metrics NetAmortizedCost
-python aws/cost-and-usage.py --granularity daily --metrics UsageQuantity
-python aws/cost-and-usage.py --granularity daily --metrics NormalizedUsageAmount
+python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost
+python aws/cost_and_usage.py --granularity daily --metrics BlendedCost
+python aws/cost_and_usage.py --granularity daily --metrics AmortizedCost
+python aws/cost_and_usage.py --granularity daily --metrics NetUnblendedCost
 
 # 17. Error: multiple metrics not allowed
-python aws/cost-and-usage.py --granularity daily --metrics UnblendedCost,BlendedCost
+python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost,BlendedCost
 
 # 18. Custom date range
-python aws/cost-and-usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
+python aws/cost_and_usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
 
 # 19. Verbose pagination
-python aws/cost-and-usage.py --granularity daily --group SERVICE --verbose
+python aws/cost_and_usage.py --granularity daily --group SERVICE --verbose
 
 """
 
