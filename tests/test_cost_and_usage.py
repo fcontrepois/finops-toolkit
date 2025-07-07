@@ -20,6 +20,26 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""
+# Tests for aws/cost_and_usage.py
+
+# Example invocations (see also docstring in cost_and_usage.py):
+
+# python aws/cost_and_usage.py --granularity daily
+# python aws/cost_and_usage.py --granularity daily --group SERVICE
+# python aws/cost_and_usage.py --granularity daily --group ALL
+# python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost
+# python aws/cost_and_usage.py --granularity daily --metrics BlendedCost
+# python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost,BlendedCost
+# python aws/cost_and_usage.py --granularity daily --group TAG --tag-key Owner
+# python aws/cost_and_usage.py --granularity daily --group TAG
+# python aws/cost_and_usage.py --granularity daily --tag-key Owner
+# python aws/cost_and_usage.py --granularity daily --interval nonsense
+# python aws/cost_and_usage.py --granularity daily --output-format nonsense
+# python aws/cost_and_usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
+# python aws/cost_and_usage.py --granularity daily --group SERVICE --verbose
+"""
+
 import unittest
 from unittest.mock import patch
 from io import StringIO
