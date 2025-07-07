@@ -60,20 +60,19 @@ python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedC
 """
 
 
-import os
-os.environ["CMDSTANPY_LOG_LEVEL"] = "WARNING"
-
-import logging
-logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
-
 import argparse
 import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
+import logging
 
 warnings.filterwarnings("ignore")
+logger = logging.getLogger('cmdstanpy')
+logger.addHandler(logging.NullHandler())
+logger.propagate = False
+logger.setLevel(logging.WARNING)
 
 def parse_args():
     parser = argparse.ArgumentParser(
