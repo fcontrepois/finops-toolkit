@@ -59,16 +59,21 @@ python aws/forecast-costs.py --input notfound.csv --date-column PeriodStart --va
 python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 """
 
+
+import os
+os.environ["CMDSTANPY_LOG_LEVEL"] = "WARNING"
+
+import logging
+logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
+
 import argparse
 import sys
-import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
 
 warnings.filterwarnings("ignore")
-os.environ["CMDSTANPY_LOG_LEVEL"] = "WARNING"
 
 def parse_args():
     parser = argparse.ArgumentParser(
