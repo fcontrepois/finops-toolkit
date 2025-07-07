@@ -206,7 +206,7 @@ def fetch_costs(start, end, group_by, granularity, metric):
 
 def print_csv_summary(results, group_key, metric, fileobj=sys.stdout):
     writer = csv.writer(fileobj)
-    header = ["PeriodStart", group_key, "values"]
+    header = ["PeriodStart", group_key, metric]
     writer.writerow(header)
     for time_period in results['ResultsByTime']:
         period_start = time_period['TimePeriod']['Start']
