@@ -32,25 +32,25 @@ python forecast-costs.py --input costs.csv --date-column PeriodStart --value-col
 python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 3. Forecast from CSV, only using Prophet
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet
 
 # 4. Forecast from CSV, only using SMA
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma
 
 # 5. Forecast from CSV, only using Exponential Smoothing
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es
 
 # 6. Forecast for a specific group (e.g., Service=AmazonEC2)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all
 
 # 7. Forecast for a specific tag (e.g., Tag:Environment=prod)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column "Tag:Environment" --group-value prod --method all
+python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column "Tag:Environment" --group-value prod --method all
 
 # 8. Forecast from stdin for a group
-python aws/cost-and-usage.py --granularity daily --output-format csv | python forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all
+python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all
 
 # 9. Show help
-python forecast-costs.py --help
+python aws/forecast-costs.py --help
 """
 
 import argparse
