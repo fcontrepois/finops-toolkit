@@ -68,6 +68,7 @@ from datetime import datetime, timedelta
 import warnings
 
 warnings.filterwarnings("ignore")
+os.environ["CMDSTANPY_LOG_LEVEL"] = "WARNING"
 
 def parse_args():
     parser = argparse.ArgumentParser(
