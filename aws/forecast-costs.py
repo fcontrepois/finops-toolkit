@@ -1,5 +1,5 @@
 # forecast-costs.py
-#
+
 # MIT License
 #
 # Copyright (c) 2025 Frank Contrepois
@@ -21,43 +21,6 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
-"""
-# Usage Examples and Tests
-
-# 1. Forecast from CSV file (default SMA window=7, ES alpha=0.5, Prophet defaults)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
-
-# 2. Forecast from CSV file with custom SMA window (e.g., 14 days)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
-
-# 3. Forecast from CSV file with custom ES alpha (e.g., 0.3)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
-
-# 4. Forecast from CSV file with custom Prophet changepoint prior scale
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1
-
-# 5. Forecast from CSV file with custom Prophet seasonality prior scale
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-seasonality-prior-scale 5.0
-
-# 6. Forecast from CSV file with custom Prophet seasonality flags
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-daily-seasonality False --prophet-yearly-seasonality True --prophet-weekly-seasonality True
-
-# 7. Forecast for a specific group with custom SMA window and ES alpha
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all --sma-window 30 --es-alpha 0.2
-
-# 8. Forecast from stdin (pipe from cost-and-usage.py) with all custom params
-python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all --sma-window 10 --es-alpha 0.7 --prophet-changepoint-prior-scale 0.2 --prophet-seasonality-prior-scale 15.0 --prophet-daily-seasonality True --prophet-yearly-seasonality True --prophet-weekly-seasonality False
-
-# 9. Show help
-python aws/forecast-costs.py --help
-
-# 10. Error: input file does not exist
-python aws/forecast-costs.py --input notfound.csv --date-column PeriodStart --value-column UnblendedCost --method all
-
-# 11. Error: no input file and no stdin
-python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
-"""
 
 """
 Output Documentation
@@ -171,8 +134,10 @@ python aws/forecast-costs.py --input notfound.csv --date-column PeriodStart --va
 # 11. Error: no input file and no stdin
 python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 
-"""
+# 12. Output as time-table (all input data + forecasted values, with columns: date, value, forecast, methodology)
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all --output-format time-table
 
+"""
 
 import logging
 logger = logging.getLogger('cmdstanpy')
@@ -187,7 +152,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
-
 warnings.filterwarnings("ignore")
 
 def parse_args():
@@ -207,6 +171,7 @@ def parse_args():
     parser.add_argument('--prophet-weekly-seasonality', type=lambda x: x.lower() == 'true', default=False, help='Prophet weekly seasonality (default: False)')
     parser.add_argument('--prophet-changepoint-prior-scale', type=float, default=0.05, help='Prophet changepoint prior scale (default: 0.05)')
     parser.add_argument('--prophet-seasonality-prior-scale', type=float, default=10.0, help='Prophet seasonality prior scale (default: 10.0)')
+    parser.add_argument('--output-format', choices=['default', 'time-table'], default='default', help='Output format: default (human-readable) or time-table (table with all input and forecasted values)')
     return parser.parse_args()
 
 def load_data(args):
@@ -228,12 +193,14 @@ def load_data(args):
         except Exception as e:
             print(f"Error: Could not read from stdin: {e}", file=sys.stderr)
             sys.exit(2)
+
     # Filter by group if specified
     if args.group_column and args.group_value:
         if args.group_column not in df.columns:
             print(f"Error: Group column '{args.group_column}' not found in input data.", file=sys.stderr)
             sys.exit(2)
         df = df[df[args.group_column] == args.group_value]
+
     # Parse date column
     if args.date_column not in df.columns:
         print(f"Error: Date column '{args.date_column}' not found in input data.", file=sys.stderr)
@@ -241,6 +208,7 @@ def load_data(args):
     if args.value_column not in df.columns:
         print(f"Error: Value column '{args.value_column}' not found in input data.", file=sys.stderr)
         sys.exit(2)
+
     df[args.date_column] = pd.to_datetime(df[args.date_column])
     df = df.sort_values(args.date_column)
     # Remove rows with missing values
@@ -341,22 +309,84 @@ def print_forecasts(method, forecasts):
         else:
             print(f"  {label.replace('_', ' ').title()}: N/A")
 
+def output_time_table(df, date_col, value_col, forecasts_dict):
+    # df: input data, already sorted by date
+    # forecasts_dict: {methodology: {label: value}}
+    # Output columns: date, value, forecast, methodology
+    # Past data: forecast=False, methodology="real"
+    # Forecasts: forecast=True, methodology=<method>
+    import sys
+    all_rows = []
+    # Add real data
+    for _, row in df.iterrows():
+        all_rows.append({
+            'date': row[date_col].date() if hasattr(row[date_col], 'date') else row[date_col],
+            'value': row[value_col],
+            'forecast': False,
+            'methodology': 'real'
+        })
+    # Add forecasts
+    for method, forecasts in forecasts_dict.items():
+        for label, value in forecasts.items():
+            all_rows.append({
+                'date': label,
+                'value': value,
+                'forecast': True,
+                'methodology': method
+            })
+    # Create DataFrame for output
+    out_df = pd.DataFrame(all_rows)
+    # For forecast rows, replace label with actual date
+    label_to_date = {
+        'end_of_week': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
+        'end_of_month': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
+        'end_of_quarter_1': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
+        'end_of_quarter_2': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
+        'end_of_quarter_3': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
+        'end_of_year': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
+    }
+    # Actually, we want to use the real date for each label
+    # Let's get the mapping from the first forecasts dict
+    if forecasts_dict:
+        first_method = next(iter(forecasts_dict))
+        label_to_date = {}
+        for label in forecasts_dict[first_method]:
+            label_to_date[label] = label
+        # Now, update the 'date' column for forecast rows
+        for idx, row in out_df.iterrows():
+            if row['forecast']:
+                # The label is in the 'date' field, replace with the actual date
+                out_df.at[idx, 'date'] = label_to_date.get(row['date'], row['date'])
+    # Sort by date, then by methodology (real first)
+    out_df['date'] = pd.to_datetime(out_df['date'])
+    out_df = out_df.sort_values(['date', 'forecast', 'methodology'])
+    # Output as CSV to stdout
+    out_df['forecast'] = out_df['forecast'].astype(bool)
+    out_df['methodology'] = out_df['methodology'].astype(str)
+    out_df['value'] = out_df['value'].round(2)
+    out_df.to_csv(sys.stdout, index=False)
+
 def main():
     args = parse_args()
     df = load_data(args)
     date_col = args.date_column
     value_col = args.value_column
-
     target_dates = get_forecast_horizons(df, date_col)
-
+    forecasts_dict = {}
     if args.method in ('all', 'sma'):
         sma_forecasts = simple_moving_average(df, date_col, value_col, target_dates, window=args.sma_window)
-        print_forecasts(f"Simple Moving Average (window={args.sma_window})", sma_forecasts)
-
+        forecasts_dict[f"Simple Moving Average (window={args.sma_window})"] = {
+            pd.to_datetime(date).date(): value for date, value in zip(target_dates.values(), sma_forecasts.values())
+        }
+        if args.output_format == 'default':
+            print_forecasts(f"Simple Moving Average (window={args.sma_window})", sma_forecasts)
     if args.method in ('all', 'es'):
         es_forecasts = exponential_smoothing(df, date_col, value_col, target_dates, alpha=args.es_alpha)
-        print_forecasts(f"Exponential Smoothing (alpha={args.es_alpha})", es_forecasts)
-
+        forecasts_dict[f"Exponential Smoothing (alpha={args.es_alpha})"] = {
+            pd.to_datetime(date).date(): value for date, value in zip(target_dates.values(), es_forecasts.values())
+        }
+        if args.output_format == 'default':
+            print_forecasts(f"Exponential Smoothing (alpha={args.es_alpha})", es_forecasts)
     if args.method in ('all', 'prophet'):
         prophet_forecasts = prophet_forecast(
             df, date_col, value_col, target_dates,
@@ -366,10 +396,21 @@ def main():
             changepoint_prior_scale=args.prophet_changepoint_prior_scale,
             seasonality_prior_scale=args.prophet_seasonality_prior_scale
         )
-        print_forecasts(
-            f"Facebook Prophet (daily_seasonality={args.prophet_daily_seasonality}, yearly_seasonality={args.prophet_yearly_seasonality}, weekly_seasonality={args.prophet_weekly_seasonality}, changepoint_prior_scale={args.prophet_changepoint_prior_scale}, seasonality_prior_scale={args.prophet_seasonality_prior_scale})",
-            prophet_forecasts
+        method_str = (
+            f"Facebook Prophet (daily_seasonality={args.prophet_daily_seasonality}, "
+            f"yearly_seasonality={args.prophet_yearly_seasonality}, "
+            f"weekly_seasonality={args.prophet_weekly_seasonality}, "
+            f"changepoint_prior_scale={args.prophet_changepoint_prior_scale}, "
+            f"seasonality_prior_scale={args.prophet_seasonality_prior_scale})"
         )
+        forecasts_dict[method_str] = {
+            pd.to_datetime(date).date(): value for date, value in zip(target_dates.values(), prophet_forecasts.values())
+        }
+        if args.output_format == 'default':
+            print_forecasts(method_str, prophet_forecasts)
+    if args.output_format == 'time-table':
+        output_time_table(df, date_col, value_col, forecasts_dict)
 
 if __name__ == "__main__":
     main()
+
