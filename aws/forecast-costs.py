@@ -59,6 +59,121 @@ python aws/forecast-costs.py --input notfound.csv --date-column PeriodStart --va
 python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 """
 
+"""
+Output Documentation
+
+The script outputs forecasted AWS costs for several future time horizons using the selected forecasting methods (Simple Moving Average, Exponential Smoothing, Facebook Prophet).
+
+-------------------------
+OUTPUT FORMAT
+-------------------------
+
+For each method, the script prints a section like:
+
+Forecasts using <Method Description>:
+  End Of Week: <value>
+  End Of Month: <value>
+  End Of Quarter 1: <value>
+  End Of Quarter 2: <value>
+  End Of Quarter 3: <value>
+  End Of Year: <value>
+
+- Each <value> is a floating-point number rounded to two decimals, representing the forecasted cumulative cost at the end of the specified period.
+
+-------------------------
+CUMULATIVE FORECASTS
+-------------------------
+
+- The forecasted value for each horizon (e.g., "End Of Quarter 2") is cumulative: it represents the total projected cost from the start of your data up to the end of that period.
+- For example, "End Of Quarter 2" includes all estimated costs for Quarter 1 and Quarter 2.
+- These values are not incremental for each period, but running totals.
+
+-------------------------
+PERIOD-SPECIFIC COSTS
+-------------------------
+
+- If you want the estimated cost for a specific period (e.g., just Quarter 2), subtract the forecast for the previous period's end from the forecast for the current period's end:
+    period_cost = forecast_end_of_period - forecast_end_of_previous_period
+
+-------------------------
+EXAMPLES
+-------------------------
+
+Example output:
+
+Forecasts using Simple Moving Average (window=7):
+  End Of Week: 123.45
+  End Of Month: 123.45
+  End Of Quarter 1: 123.45
+  End Of Quarter 2: 123.45
+  End Of Quarter 3: 123.45
+  End Of Year: 123.45
+
+Forecasts using Exponential Smoothing (alpha=0.5):
+  End Of Week: 124.67
+  End Of Month: 124.67
+  End Of Quarter 1: 124.67
+  End Of Quarter 2: 124.67
+  End Of Quarter 3: 124.67
+  End Of Year: 124.67
+
+Forecasts using Facebook Prophet (daily_seasonality=True, yearly_seasonality=True, weekly_seasonality=False, changepoint_prior_scale=0.05, seasonality_prior_scale=10.0):
+  End Of Week: 120.12
+  End Of Month: 121.34
+  End Of Quarter 1: 125.67
+  End Of Quarter 2: 130.45
+  End Of Quarter 3: 135.12
+  End Of Year: 140.00
+
+-------------------------
+ERROR OUTPUTS
+-------------------------
+
+If an error occurs (e.g., missing file, missing columns, Prophet not installed), an error message is printed to standard error and the script exits with a non-zero code.
+
+Example:
+Error: Input file 'notfound.csv' does not exist or is not a file.
+
+-------------------------
+USAGE EXAMPLES & TESTS
+-------------------------
+
+# 1. Forecast from CSV file (default SMA window=7, ES alpha=0.5, Prophet defaults)
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
+
+# 2. Forecast from CSV file with custom SMA window (e.g., 14 days)
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
+
+# 3. Forecast from CSV file with custom ES alpha (e.g., 0.3)
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
+
+# 4. Forecast from CSV file with custom Prophet changepoint prior scale
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1
+
+# 5. Forecast from CSV file with custom Prophet seasonality prior scale
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-seasonality-prior-scale 5.0
+
+# 6. Forecast from CSV file with custom Prophet seasonality flags
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-daily-seasonality False --prophet-yearly-seasonality True --prophet-weekly-seasonality True
+
+# 7. Forecast for a specific group with custom SMA window and ES alpha
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all --sma-window 30 --es-alpha 0.2
+
+# 8. Forecast from stdin (pipe from cost-and-usage.py) with all custom params
+python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all --sma-window 10 --es-alpha 0.7 --prophet-changepoint-prior-scale 0.2 --prophet-seasonality-prior-scale 15.0 --prophet-daily-seasonality True --prophet-yearly-seasonality True --prophet-weekly-seasonality False
+
+# 9. Show help
+python aws/forecast-costs.py --help
+
+# 10. Error: input file does not exist
+python aws/forecast-costs.py --input notfound.csv --date-column PeriodStart --value-column UnblendedCost --method all
+
+# 11. Error: no input file and no stdin
+python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
+
+"""
+
+
 import logging
 logger = logging.getLogger('cmdstanpy')
 logger.addHandler(logging.NullHandler())
