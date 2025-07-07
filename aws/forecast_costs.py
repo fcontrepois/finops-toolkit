@@ -102,41 +102,40 @@ USAGE EXAMPLES & TESTS
 -------------------------
 
 # 1. Forecast from CSV file (default SMA window=7, ES alpha=0.5, Prophet defaults)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 2. Forecast from CSV file with custom SMA window (e.g., 14 days)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
 
 # 3. Forecast from CSV file with custom ES alpha (e.g., 0.3)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
 
 # 4. Forecast from CSV file with custom Prophet changepoint prior scale
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1
 
 # 5. Forecast from CSV file with custom Prophet seasonality prior scale
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-seasonality-prior-scale 5.0
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-seasonality-prior-scale 5.0
 
 # 6. Forecast from CSV file with custom Prophet seasonality flags
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-daily-seasonality False --prophet-yearly-seasonality True --prophet-weekly-seasonality True
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-daily-seasonality False --prophet-yearly-seasonality True --prophet-weekly-seasonality True
 
 # 7. Forecast for a specific group with custom SMA window and ES alpha
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all --sma-window 30 --es-alpha 0.2
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all --sma-window 30 --es-alpha 0.2
 
-# 8. Forecast from stdin (pipe from cost-and-usage.py) with all custom params
-python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all --sma-window 10 --es-alpha 0.7 --prophet-changepoint-prior-scale 0.2 --prophet-seasonality-prior-scale 15.0 --prophet-daily-seasonality True --prophet-yearly-seasonality True --prophet-weekly-seasonality False
+# 8. Forecast from stdin (pipe from cost_and_usage.py) with all custom params
+python aws/cost_and_usage.py --granularity daily --output-format csv | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost --method all --sma-window 10 --es-alpha 0.7 --prophet-changepoint-prior-scale 0.2 --prophet-seasonality-prior-scale 15.0 --prophet-daily-seasonality True --prophet-yearly-seasonality True --prophet-weekly-seasonality False
 
 # 9. Show help
-python aws/forecast-costs.py --help
+python aws/forecast_costs.py --help
 
 # 10. Error: input file does not exist
-python aws/forecast-costs.py --input notfound.csv --date-column PeriodStart --value-column UnblendedCost --method all
+python aws/forecast_costs.py --input notfound.csv --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 11. Error: no input file and no stdin
-python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
+python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 12. Output as time-table (all input data + forecasted values, with columns: date, value, forecast, methodology)
-python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all --output-format time-table
-
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all --output-format time-table
 """
 
 import logging
