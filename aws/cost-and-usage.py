@@ -48,6 +48,7 @@ python aws/cost-and-usage.py --granularity daily --interval week --include-today
 python aws/cost-and-usage.py --granularity daily --group SERVICE
 python aws/cost-and-usage.py --granularity daily --group LINKED_ACCOUNT
 python aws/cost-and-usage.py --granularity daily --group TAG --tag-key Environment
+python aws/cost-and-usage.py --granularity daily --group ALL
 
 # 6. All output formats
 python aws/cost-and-usage.py --granularity daily --output-format csv
@@ -98,7 +99,6 @@ import sys
 import csv
 from datetime import datetime, timedelta, date
 
-# List of valid AWS Cost Explorer metrics as of 2025
 VALID_METRICS = [
     "BlendedCost",
     "UnblendedCost",
@@ -127,22 +127,18 @@ def get_date_range(granularity, interval, include_today):
     else:
         end = now
 
-    # Default intervals if not set
     if interval is None:
         if granularity == "HOURLY":
-            # Default: yesterday
             start = now - timedelta(days=1)
             end = now if not include_today else now + timedelta(days=1)
             start_dt = datetime.combine(start, datetime.min.time())
             end_dt = datetime.combine(end, datetime.min.time())
             return format_aws_datetime(start_dt), format_aws_datetime(end_dt)
         elif granularity == "DAILY":
-            # Default: last week up to yesterday
             start = now - timedelta(days=7)
             end = now if not include_today else now + timedelta(days=1)
             return str(start), str(end)
         elif granularity == "MONTHLY":
-            # Default: last year up to last month
             first_of_this_month = now.replace(day=1)
             start = (first_of_this_month - timedelta(days=365)).replace(day=1)
             end = first_of_this_month if not include_today else now + timedelta(days=1)
@@ -150,7 +146,6 @@ def get_date_range(granularity, interval, include_today):
         else:
             raise ValueError("Invalid granularity")
     else:
-        # Parse interval
         if interval == "day":
             start = now
             end = now + timedelta(days=1) if include_today else now
@@ -183,10 +178,13 @@ def get_date_range(granularity, interval, include_today):
             else:
                 return str(start), str(end)
 
-def fetch_costs(start, end, group_by, granularity, metric):
+def fetch_costs(start, end, group_by, granularity, metric, verbose=False):
     all_results = []
     next_token = None
+    page = 1
     while True:
+        if verbose:
+            print(f"Fetching page {page}...", file=sys.stderr)
         cmd = [
             "aws", "ce", "get-cost-and-usage",
             "--time-period", f"Start={start},End={end}",
@@ -204,20 +202,35 @@ def fetch_costs(start, end, group_by, granularity, metric):
             break
     return {'ResultsByTime': all_results}
 
-def print_csv_summary(results, group_key, metric, fileobj=sys.stdout):
+def print_csv_summary_all(results, metric, fileobj=sys.stdout):
+    # Output is a total across all groups for each period
+    header = ["PeriodStart", "TotalValue"]  # Clarified header
     writer = csv.writer(fileobj)
-    header = ["PeriodStart", group_key, metric]
     writer.writerow(header)
     for time_period in results['ResultsByTime']:
         period_start = time_period['TimePeriod']['Start']
-        for group in time_period['Groups']:
-            key = group['Keys'][0]
-            amount = group['Metrics'].get(metric, {}).get('Amount', '')
-            try:
-                amount = f"{float(amount):.6f}"
-            except Exception:
-                pass
-            writer.writerow([period_start, key, amount])
+        amount = time_period['Total'].get(metric, {}).get('Amount', '')
+        try:
+            amount = f"{float(amount):.6f}"
+        except Exception:
+            pass
+        writer.writerow([period_start, amount])
+
+
+# --- ADDED: print_csv_summary for ALL group ---
+def print_csv_summary_all(results, metric, fileobj=sys.stdout):
+    writer = csv.writer(fileobj)
+    header = ["PeriodStart", "values"]
+    writer.writerow(header)
+    for time_period in results['ResultsByTime']:
+        period_start = time_period['TimePeriod']['Start']
+        amount = time_period['Total'].get(metric, {}).get('Amount', '')
+        try:
+            amount = f"{float(amount):.6f}"
+        except Exception:
+            pass
+        writer.writerow([period_start, amount])
+# --- END ADDED ---
 
 def print_json_summary(results, fileobj=sys.stdout):
     json.dump(results, fileobj, indent=2)
@@ -253,8 +266,8 @@ def main():
         help="If set, include today in the interval"
     )
     parser.add_argument(
-        "--group", choices=["SERVICE", "LINKED_ACCOUNT", "TAG"], default="SERVICE",
-        help="Group costs by SERVICE, LINKED_ACCOUNT, or TAG (default: SERVICE)"
+        "--group", choices=["SERVICE", "LINKED_ACCOUNT", "TAG", "ALL"], default="SERVICE",
+        help="Group costs by SERVICE, LINKED_ACCOUNT, TAG, or ALL (default: SERVICE)"
     )
     parser.add_argument(
         "--tag-key", type=str, default=None,
@@ -268,7 +281,15 @@ def main():
         "--metrics", type=str, default="UnblendedCost",
         help=f"Metric to retrieve (default: UnblendedCost). Valid options: {', '.join(VALID_METRICS)}"
     )
+    parser.add_argument(
+        "--verbose", action="store_true", 
+        help="Print debug info (pagination, etc.)")
+    
     args = parser.parse_args()
+    if args.tag_key and args.group != "TAG":
+    print("Error: --tag-key can only be used with --group TAG.", file=sys.stderr)
+    sys.exit(1)
+
 
     granularity_map = {
         "hourly": "HOURLY",
@@ -283,32 +304,57 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    metric = parse_metric(args.metrics)
+
     if args.group == "TAG":
         if not args.tag_key:
             print("Error: --tag-key is required when grouping by TAG.", file=sys.stderr)
             sys.exit(1)
         group_by = {"Type": "TAG", "Key": args.tag_key}
         group_key = f"Tag:{args.tag_key}"
+        results = fetch_costs(start, end, group_by, granularity, metric)
+        if args.output_format == "csv":
+            print_csv_summary(results, group_key, metric)
+        elif args.output_format == "json":
+            print_json_summary(results)
+        else:
+            print("Invalid output format.", file=sys.stderr)
+            sys.exit(1)
     elif args.group == "SERVICE":
         group_by = {"Type": "DIMENSION", "Key": "SERVICE"}
         group_key = "Service"
+        results = fetch_costs(start, end, group_by, granularity, metric)
+        if args.output_format == "csv":
+            print_csv_summary(results, group_key, metric)
+        elif args.output_format == "json":
+            print_json_summary(results)
+        else:
+            print("Invalid output format.", file=sys.stderr)
+            sys.exit(1)
     elif args.group == "LINKED_ACCOUNT":
         group_by = {"Type": "DIMENSION", "Key": "LINKED_ACCOUNT"}
         group_key = "Account"
+        results = fetch_costs(start, end, group_by, granularity, metric)
+        if args.output_format == "csv":
+            print_csv_summary(results, group_key, metric)
+        elif args.output_format == "json":
+            print_json_summary(results)
+        else:
+            print("Invalid output format.", file=sys.stderr)
+            sys.exit(1)
+    # --- ADDED: ALL group logic ---
+    elif args.group == "ALL":
+        results = fetch_costs(start, end, None, granularity, metric)
+        if args.output_format == "csv":
+            print_csv_summary_all(results, metric)
+        elif args.output_format == "json":
+            print_json_summary(results)
+        else:
+            print("Invalid output format.", file=sys.stderr)
+            sys.exit(1)
+    # --- END ADDED ---
     else:
         print("Invalid group type.", file=sys.stderr)
-        sys.exit(1)
-
-    metric = parse_metric(args.metrics)
-
-    results = fetch_costs(start, end, group_by, granularity, metric)
-
-    if args.output_format == "csv":
-        print_csv_summary(results, group_key, metric)
-    elif args.output_format == "json":
-        print_json_summary(results)
-    else:
-        print("Invalid output format.", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":
