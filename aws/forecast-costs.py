@@ -25,29 +25,29 @@
 """
 # Usage Examples and Tests
 
-# 1. Forecast from CSV file (daily granularity, group by SERVICE)
+# 1. Forecast from CSV file (default SMA window=7, ES alpha=0.5, Prophet defaults)
 python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
 
-# 2. Forecast from stdin (pipe from cost-and-usage.py)
-python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
+# 2. Forecast from CSV file with custom SMA window (e.g., 14 days)
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
 
-# 3. Forecast from CSV, only using Prophet
-python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet
+# 3. Forecast from CSV file with custom ES alpha (e.g., 0.3)
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
 
-# 4. Forecast from CSV, only using SMA
-python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma
+# 4. Forecast from CSV file with custom Prophet changepoint prior scale
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1
 
-# 5. Forecast from CSV, only using Exponential Smoothing
-python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es
+# 5. Forecast from CSV file with custom Prophet seasonality prior scale
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-seasonality-prior-scale 5.0
 
-# 6. Forecast for a specific group (e.g., Service=AmazonEC2)
-python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all
+# 6. Forecast from CSV file with custom Prophet seasonality flags
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-daily-seasonality False --prophet-yearly-seasonality True --prophet-weekly-seasonality True
 
-# 7. Forecast for a specific tag (e.g., Tag:Environment=prod)
-python aws/forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column "Tag:Environment" --group-value prod --method all
+# 7. Forecast for a specific group with custom SMA window and ES alpha
+python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all --sma-window 30 --es-alpha 0.2
 
-# 8. Forecast from stdin for a group
-python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all
+# 8. Forecast from stdin (pipe from cost-and-usage.py) with all custom params
+python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all --sma-window 10 --es-alpha 0.7 --prophet-changepoint-prior-scale 0.2 --prophet-seasonality-prior-scale 15.0 --prophet-daily-seasonality True --prophet-yearly-seasonality True --prophet-weekly-seasonality False
 
 # 9. Show help
 python aws/forecast-costs.py --help
@@ -59,20 +59,18 @@ python aws/forecast-costs.py --input notfound.csv --date-column PeriodStart --va
 python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 """
 
+import logging
+logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
 
 import argparse
 import sys
+import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
-import logging
 
 warnings.filterwarnings("ignore")
-logger = logging.getLogger('cmdstanpy')
-logger.addHandler(logging.NullHandler())
-logger.propagate = False
-logger.setLevel(logging.WARNING)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -84,6 +82,13 @@ def parse_args():
     parser.add_argument('--group-column', required=False, help='Name of the group column (e.g., Service, Tag:Environment)')
     parser.add_argument('--group-value', required=False, help='Value of the group to filter (e.g., AmazonEC2, prod)')
     parser.add_argument('--method', choices=['all', 'sma', 'es', 'prophet'], default='all', help='Forecasting method(s) to use')
+    parser.add_argument('--sma-window', type=int, default=7, help='Window size for Simple Moving Average (default: 7)')
+    parser.add_argument('--es-alpha', type=float, default=0.5, help='Alpha (smoothing factor) for Exponential Smoothing (default: 0.5)')
+    parser.add_argument('--prophet-daily-seasonality', type=lambda x: x.lower() == 'true', default=True, help='Prophet daily seasonality (default: True)')
+    parser.add_argument('--prophet-yearly-seasonality', type=lambda x: x.lower() == 'true', default=True, help='Prophet yearly seasonality (default: True)')
+    parser.add_argument('--prophet-weekly-seasonality', type=lambda x: x.lower() == 'true', default=False, help='Prophet weekly seasonality (default: False)')
+    parser.add_argument('--prophet-changepoint-prior-scale', type=float, default=0.05, help='Prophet changepoint prior scale (default: 0.05)')
+    parser.add_argument('--prophet-seasonality-prior-scale', type=float, default=10.0, help='Prophet seasonality prior scale (default: 10.0)')
     return parser.parse_args()
 
 def load_data(args):
@@ -174,7 +179,7 @@ def exponential_smoothing(df, date_col, value_col, target_dates, alpha=0.5):
         forecasts[label] = es
     return forecasts
 
-def prophet_forecast(df, date_col, value_col, target_dates):
+def prophet_forecast(df, date_col, value_col, target_dates, daily_seasonality=True, yearly_seasonality=True, weekly_seasonality=False, changepoint_prior_scale=0.05, seasonality_prior_scale=10.0):
     try:
         from prophet import Prophet
     except ImportError:
@@ -184,7 +189,13 @@ def prophet_forecast(df, date_col, value_col, target_dates):
             print("Facebook Prophet is not installed. Please install with 'pip install prophet' or 'pip install fbprophet'.", file=sys.stderr)
             return {label: None for label in target_dates}
     prophet_df = df.rename(columns={date_col: 'ds', value_col: 'y'})
-    model = Prophet(daily_seasonality=True, yearly_seasonality=True)
+    model = Prophet(
+        daily_seasonality=daily_seasonality,
+        yearly_seasonality=yearly_seasonality,
+        weekly_seasonality=weekly_seasonality,
+        changepoint_prior_scale=changepoint_prior_scale,
+        seasonality_prior_scale=seasonality_prior_scale
+    )
     model.fit(prophet_df)
     max_target = max(target_dates.values())
     import pandas as pd
@@ -221,16 +232,26 @@ def main():
     target_dates = get_forecast_horizons(df, date_col)
 
     if args.method in ('all', 'sma'):
-        sma_forecasts = simple_moving_average(df, date_col, value_col, target_dates)
-        print_forecasts("Simple Moving Average", sma_forecasts)
+        sma_forecasts = simple_moving_average(df, date_col, value_col, target_dates, window=args.sma_window)
+        print_forecasts(f"Simple Moving Average (window={args.sma_window})", sma_forecasts)
 
     if args.method in ('all', 'es'):
-        es_forecasts = exponential_smoothing(df, date_col, value_col, target_dates)
-        print_forecasts("Exponential Smoothing", es_forecasts)
+        es_forecasts = exponential_smoothing(df, date_col, value_col, target_dates, alpha=args.es_alpha)
+        print_forecasts(f"Exponential Smoothing (alpha={args.es_alpha})", es_forecasts)
 
     if args.method in ('all', 'prophet'):
-        prophet_forecasts = prophet_forecast(df, date_col, value_col, target_dates)
-        print_forecasts("Facebook Prophet", prophet_forecasts)
+        prophet_forecasts = prophet_forecast(
+            df, date_col, value_col, target_dates,
+            daily_seasonality=args.prophet_daily_seasonality,
+            yearly_seasonality=args.prophet_yearly_seasonality,
+            weekly_seasonality=args.prophet_weekly_seasonality,
+            changepoint_prior_scale=args.prophet_changepoint_prior_scale,
+            seasonality_prior_scale=args.prophet_seasonality_prior_scale
+        )
+        print_forecasts(
+            f"Facebook Prophet (daily_seasonality={args.prophet_daily_seasonality}, yearly_seasonality={args.prophet_yearly_seasonality}, weekly_seasonality={args.prophet_weekly_seasonality}, changepoint_prior_scale={args.prophet_changepoint_prior_scale}, seasonality_prior_scale={args.prophet_seasonality_prior_scale})",
+            prophet_forecasts
+        )
 
 if __name__ == "__main__":
     main()
