@@ -29,7 +29,7 @@
 python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 2. Forecast from stdin (pipe from cost-and-usage.py)
-python aws/cost-and-usage.py --granularity daily --output-format csv | python forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
+python aws/cost-and-usage.py --granularity daily --output-format csv | python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 3. Forecast from CSV, only using Prophet
 python forecast-costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet
