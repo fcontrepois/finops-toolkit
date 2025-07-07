@@ -1,4 +1,4 @@
-# forecast-costs.py
+# forecast_costs.py
 
 # MIT License
 #
@@ -102,25 +102,25 @@ USAGE EXAMPLES & TESTS
 -------------------------
 
 # 1. Forecast from CSV file (default SMA window=7, ES alpha=0.5, Prophet defaults)
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 2. Forecast from CSV file with custom SMA window (e.g., 14 days)
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method sma --sma-window 14
 
 # 3. Forecast from CSV file with custom ES alpha (e.g., 0.3)
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method es --es-alpha 0.3
 
 # 4. Forecast from CSV file with custom Prophet changepoint prior scale
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-changepoint-prior-scale 0.1
 
 # 5. Forecast from CSV file with custom Prophet seasonality prior scale
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-seasonality-prior-scale 5.0
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-seasonality-prior-scale 5.0
 
 # 6. Forecast from CSV file with custom Prophet seasonality flags
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-daily-seasonality False --prophet-yearly-seasonality True --prophet-weekly-seasonality True
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method prophet --prophet-daily-seasonality False --prophet-yearly-seasonality True --prophet-weekly-seasonality True
 
 # 7. Forecast for a specific group with custom SMA window and ES alpha
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all --sma-window 30 --es-alpha 0.2
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --group-column Service --group-value AmazonEC2 --method all --sma-window 30 --es-alpha 0.2
 
 # 8. Forecast from stdin (pipe from cost_and_usage.py) with all custom params
 python aws/cost_and_usage.py --granularity daily --output-format csv | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost --method all --sma-window 10 --es-alpha 0.7 --prophet-changepoint-prior-scale 0.2 --prophet-seasonality-prior-scale 15.0 --prophet-daily-seasonality True --prophet-yearly-seasonality True --prophet-weekly-seasonality False
@@ -135,25 +135,27 @@ python aws/forecast_costs.py --input notfound.csv --date-column PeriodStart --va
 python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost --method all
 
 # 12. Output as time-table (all input data + forecasted values, with columns: date, value, forecast, methodology)
-python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all --output-format time-table
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --method all --output-format time-table
 """
 
 import logging
-logger = logging.getLogger('cmdstanpy')
-logger.addHandler(logging.NullHandler())
-logger.propagate = False
-logger.setLevel(logging.WARNING)
-
 import argparse
 import sys
 import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 import warnings
+
+logger = logging.getLogger('cmdstanpy')
+logger.addHandler(logging.NullHandler())
+logger.propagate = False
+logger.setLevel(logging.WARNING)
 warnings.filterwarnings("ignore")
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Forecast AWS costs using SMA, Exponential Smoothing, and Facebook Prophet."
     )
@@ -173,7 +175,11 @@ def parse_args():
     parser.add_argument('--output-format', choices=['default', 'time-table'], default='default', help='Output format: default (human-readable) or time-table (table with all input and forecasted values)')
     return parser.parse_args()
 
-def load_data(args):
+def load_data(args: argparse.Namespace) -> pd.DataFrame:
+    """
+    Loads the input CSV or stdin, filters by group if specified, and returns a DataFrame.
+    Exits with error if data is missing or invalid.
+    """
     if args.input:
         if not os.path.isfile(args.input):
             print(f"Error: Input file '{args.input}' does not exist or is not a file.", file=sys.stderr)
@@ -193,14 +199,21 @@ def load_data(args):
             print(f"Error: Could not read from stdin: {e}", file=sys.stderr)
             sys.exit(2)
 
+    if df.empty:
+        print("Error: Input data is empty.", file=sys.stderr)
+        sys.exit(2)
+
     # Filter by group if specified
     if args.group_column and args.group_value:
         if args.group_column not in df.columns:
             print(f"Error: Group column '{args.group_column}' not found in input data.", file=sys.stderr)
             sys.exit(2)
         df = df[df[args.group_column] == args.group_value]
+        if df.empty:
+            print(f"Warning: No data found for group '{args.group_value}' in column '{args.group_column}'.", file=sys.stderr)
+            sys.exit(2)
 
-    # Parse date column
+    # Parse date and value columns
     if args.date_column not in df.columns:
         print(f"Error: Date column '{args.date_column}' not found in input data.", file=sys.stderr)
         sys.exit(2)
@@ -208,15 +221,26 @@ def load_data(args):
         print(f"Error: Value column '{args.value_column}' not found in input data.", file=sys.stderr)
         sys.exit(2)
 
-    df[args.date_column] = pd.to_datetime(df[args.date_column])
+    df[args.date_column] = pd.to_datetime(df[args.date_column], errors='coerce')
     df = df.sort_values(args.date_column)
-    # Remove rows with missing values
     df = df[[args.date_column, args.value_column]].dropna()
-    # Convert value column to float
-    df[args.value_column] = df[args.value_column].astype(float)
+    try:
+        df[args.value_column] = df[args.value_column].astype(float)
+    except Exception:
+        print(f"Error: Value column '{args.value_column}' contains non-numeric data.", file=sys.stderr)
+        sys.exit(2)
+    if df.empty:
+        print("Error: No valid data after filtering and cleaning.", file=sys.stderr)
+        sys.exit(2)
     return df
 
-def get_forecast_horizons(df, date_col):
+def get_forecast_horizons(df: pd.DataFrame, date_col: str) -> Dict[str, datetime.date]:
+    """
+    Returns a dictionary of forecast horizon labels and their corresponding dates.
+    """
+    if df.empty:
+        print("Error: No data available for forecasting.", file=sys.stderr)
+        sys.exit(2)
     last_date = df[date_col].max()
     # End of week (next Sunday)
     eow = last_date + timedelta(days=(6 - last_date.weekday()))
@@ -245,26 +269,51 @@ def get_forecast_horizons(df, date_col):
         'end_of_year': eoy
     }
 
-def simple_moving_average(df, date_col, value_col, target_dates, window=7):
+def simple_moving_average(
+    df: pd.DataFrame,
+    date_col: str,
+    value_col: str,
+    target_dates: Dict[str, datetime.date],
+    window: int = 7
+) -> Dict[str, float]:
+    """
+    Returns a dict of forecasted values for each target date using SMA.
+    """
     sma = df[value_col].rolling(window=window, min_periods=1).mean().iloc[-1]
-    forecasts = {}
-    for label, target_date in target_dates.items():
-        forecasts[label] = sma
-    return forecasts
+    return {label: sma for label in target_dates}
 
-def exponential_smoothing(df, date_col, value_col, target_dates, alpha=0.5):
+def exponential_smoothing(
+    df: pd.DataFrame,
+    date_col: str,
+    value_col: str,
+    target_dates: Dict[str, datetime.date],
+    alpha: float = 0.5
+) -> Dict[str, float]:
+    """
+    Returns a dict of forecasted values for each target date using Exponential Smoothing.
+    """
     values = df[value_col].values
     if len(values) == 0:
         return {label: None for label in target_dates}
     es = values[0]
     for v in values[1:]:
         es = alpha * v + (1 - alpha) * es
-    forecasts = {}
-    for label, target_date in target_dates.items():
-        forecasts[label] = es
-    return forecasts
+    return {label: es for label in target_dates}
 
-def prophet_forecast(df, date_col, value_col, target_dates, daily_seasonality=True, yearly_seasonality=True, weekly_seasonality=False, changepoint_prior_scale=0.05, seasonality_prior_scale=10.0):
+def prophet_forecast(
+    df: pd.DataFrame,
+    date_col: str,
+    value_col: str,
+    target_dates: Dict[str, datetime.date],
+    daily_seasonality: bool = True,
+    yearly_seasonality: bool = True,
+    weekly_seasonality: bool = False,
+    changepoint_prior_scale: float = 0.05,
+    seasonality_prior_scale: float = 10.0
+) -> Dict[str, Optional[float]]:
+    """
+    Returns a dict of forecasted values for each target date using Facebook Prophet.
+    """
     try:
         from prophet import Prophet
     except ImportError:
@@ -283,7 +332,6 @@ def prophet_forecast(df, date_col, value_col, target_dates, daily_seasonality=Tr
     )
     model.fit(prophet_df)
     max_target = max(target_dates.values())
-    import pandas as pd
     periods = (pd.to_datetime(max_target) - prophet_df['ds'].max()).days
     if periods < 1:
         periods = 1
@@ -300,7 +348,10 @@ def prophet_forecast(df, date_col, value_col, target_dates, daily_seasonality=Tr
         forecasts[label] = yhat
     return forecasts
 
-def print_forecasts(method, forecasts):
+def print_forecasts(method: str, forecasts: Dict[str, Optional[float]]) -> None:
+    """
+    Prints the forecasted values for each horizon in a human-readable format.
+    """
     print(f"\nForecasts using {method}:")
     for label, value in forecasts.items():
         if value is not None:
@@ -308,15 +359,16 @@ def print_forecasts(method, forecasts):
         else:
             print(f"  {label.replace('_', ' ').title()}: N/A")
 
-def output_time_table(df, date_col, value_col, forecasts_dict):
-    # df: input data, already sorted by date
-    # forecasts_dict: {methodology: {label: value}}
-    # Output columns: date, value, forecast, methodology
-    # Past data: forecast=False, methodology="Real"
-    # Forecasts: forecast=True, methodology=<method>
-    import sys
+def output_time_table(
+    df: pd.DataFrame,
+    date_col: str,
+    value_col: str,
+    forecasts_dict: Dict[str, Dict[str, Optional[float]]]
+) -> None:
+    """
+    Outputs all input data and forecasted values as a CSV table to stdout.
+    """
     all_rows = []
-    # Add real data
     for _, row in df.iterrows():
         all_rows.append({
             'date': row[date_col].date() if hasattr(row[date_col], 'date') else row[date_col],
@@ -324,7 +376,6 @@ def output_time_table(df, date_col, value_col, forecasts_dict):
             'forecast': False,
             'methodology': 'Real'
         })
-    # Add forecasts
     for method, forecasts in forecasts_dict.items():
         for label, value in forecasts.items():
             all_rows.append({
@@ -333,45 +384,31 @@ def output_time_table(df, date_col, value_col, forecasts_dict):
                 'forecast': True,
                 'methodology': method
             })
-    # Create DataFrame for output
     out_df = pd.DataFrame(all_rows)
-    # For forecast rows, replace label with actual date
-    label_to_date = {
-        'end_of_week': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
-        'end_of_month': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
-        'end_of_quarter_1': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
-        'end_of_quarter_2': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
-        'end_of_quarter_3': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
-        'end_of_year': forecasts_dict[list(forecasts_dict.keys())[0]].keys(),
-    }
-    # Actually, we want to use the real date for each label
-    # Let's get the mapping from the first forecasts dict
     if forecasts_dict:
         first_method = next(iter(forecasts_dict))
-        label_to_date = {}
-        for label in forecasts_dict[first_method]:
-            label_to_date[label] = label
-        # Now, update the 'date' column for forecast rows
+        label_to_date = {label: label for label in forecasts_dict[first_method]}
         for idx, row in out_df.iterrows():
             if row['forecast']:
-                # The label is in the 'date' field, replace with the actual date
                 out_df.at[idx, 'date'] = label_to_date.get(row['date'], row['date'])
-    # Sort by date, then by methodology (real first)
     out_df['date'] = pd.to_datetime(out_df['date'])
     out_df = out_df.sort_values(['date', 'forecast', 'methodology'])
-    # Output as CSV to stdout
     out_df['forecast'] = out_df['forecast'].astype(bool)
     out_df['methodology'] = out_df['methodology'].astype(str)
     out_df['value'] = out_df['value'].round(2)
     out_df.to_csv(sys.stdout, index=False)
 
-def main():
+def main() -> None:
+    """
+    Main entry point for the CLI tool.
+    """
     args = parse_args()
     df = load_data(args)
     date_col = args.date_column
     value_col = args.value_column
     target_dates = get_forecast_horizons(df, date_col)
-    forecasts_dict = {}
+    forecasts_dict: Dict[str, Dict[str, Optional[float]]] = {}
+
     if args.method in ('all', 'sma'):
         sma_forecasts = simple_moving_average(df, date_col, value_col, target_dates, window=args.sma_window)
         forecasts_dict[f"Simple Moving Average (window={args.sma_window})"] = {
@@ -412,4 +449,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
