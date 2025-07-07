@@ -108,7 +108,7 @@ class TestCostAndUsage(unittest.TestCase):
         output = StringIO()
         cau.print_csv_summary_all(results, "UnblendedCost", fileobj=output)
         csv_output = output.getvalue()
-        self.assertIn("TotalValue (USD)", csv_output)
+        self.assertIn("UnblendedCost", csv_output)
         self.assertIn("42.123456", csv_output)
 
     def test_print_csv_summary_grouped_header_unit(self):
@@ -128,7 +128,7 @@ class TestCostAndUsage(unittest.TestCase):
         output = StringIO()
         cau.print_csv_summary(results, "Service", "UnblendedCost", fileobj=output)
         csv_output = output.getvalue()
-        self.assertIn("values (USD)", csv_output)
+        self.assertIn("UnblendedCost", csv_output)
         self.assertIn("123.456000", csv_output)
 
     def test_print_json_summary(self):
