@@ -313,7 +313,7 @@ def output_time_table(df, date_col, value_col, forecasts_dict):
     # df: input data, already sorted by date
     # forecasts_dict: {methodology: {label: value}}
     # Output columns: date, value, forecast, methodology
-    # Past data: forecast=False, methodology="real"
+    # Past data: forecast=False, methodology="Real"
     # Forecasts: forecast=True, methodology=<method>
     import sys
     all_rows = []
@@ -323,7 +323,7 @@ def output_time_table(df, date_col, value_col, forecasts_dict):
             'date': row[date_col].date() if hasattr(row[date_col], 'date') else row[date_col],
             'value': row[value_col],
             'forecast': False,
-            'methodology': 'real'
+            'methodology': 'Real'
         })
     # Add forecasts
     for method, forecasts in forecasts_dict.items():
