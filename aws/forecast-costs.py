@@ -60,7 +60,10 @@ python aws/forecast-costs.py --date-column PeriodStart --value-column UnblendedC
 """
 
 import logging
-logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
+logger = logging.getLogger('cmdstanpy')
+logger.addHandler(logging.NullHandler())
+logger.propagate = False
+logger.setLevel(logging.WARNING)
 
 import argparse
 import sys
