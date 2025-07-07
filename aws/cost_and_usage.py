@@ -1,4 +1,4 @@
-# aws/cost-and-usage.py
+# aws/cost_and_usage.py
 
 # MIT License
 #
@@ -95,7 +95,6 @@ python aws/cost_and_usage.py --granularity daily --start 2025-01-01 --end 2025-0
 
 # 19. Verbose pagination
 python aws/cost_and_usage.py --granularity daily --group SERVICE --verbose
-
 """
 
 import argparse
@@ -104,6 +103,7 @@ import json
 import sys
 import csv
 from datetime import datetime, timedelta, date
+from typing import Optional, Tuple, Dict, Any
 
 VALID_METRICS = [
     "BlendedCost",
@@ -125,7 +125,11 @@ METRIC_UNITS = {
     "NormalizedUsageAmount": "NormalizedUnits"
 }
 
-def run_aws_cli(cmd):
+def run_aws_cli(cmd: list) -> dict:
+    """
+    Runs the AWS CLI command and returns the parsed JSON output.
+    Exits on error.
+    """
     try:
         result = subprocess.run(cmd, capture_output=True, check=True, text=True)
         return json.loads(result.stdout)
@@ -133,10 +137,20 @@ def run_aws_cli(cmd):
         print("Error running AWS CLI:", e.stderr, file=sys.stderr)
         sys.exit(1)
 
-def format_aws_datetime(dt):
+def format_aws_datetime(dt: datetime) -> str:
+    """
+    Formats a datetime object to AWS Cost Explorer's required string format.
+    """
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def get_date_range(granularity, interval, include_today):
+def get_date_range(
+    granularity: str,
+    interval: Optional[str],
+    include_today: bool
+) -> Tuple[str, str]:
+    """
+    Determines the start and end date strings for the AWS Cost Explorer query.
+    """
     now = datetime.utcnow().date()
     if include_today:
         end = now + timedelta(days=1)
@@ -194,7 +208,18 @@ def get_date_range(granularity, interval, include_today):
             else:
                 return str(start), str(end)
 
-def fetch_costs(start, end, group_by, granularity, metric, verbose=False):
+def fetch_costs(
+    start: str,
+    end: str,
+    group_by: Optional[Dict[str, str]],
+    granularity: str,
+    metric: str,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Fetches cost data from AWS Cost Explorer using the AWS CLI.
+    Handles pagination and returns all results.
+    """
     all_results = []
     next_token = None
     page = 1
@@ -212,22 +237,30 @@ def fetch_costs(start, end, group_by, granularity, metric, verbose=False):
         if next_token:
             cmd += ["--starting-token", next_token]
         result = run_aws_cli(cmd)
-        all_results.extend(result['ResultsByTime'])
+        # Defensive: handle missing ResultsByTime
+        all_results.extend(result.get('ResultsByTime', []))
         next_token = result.get('NextPageToken')
         if not next_token:
             break
         page += 1
     return {'ResultsByTime': all_results}
 
-def print_csv_summary(results, group_key, metric, fileobj=sys.stdout):
-    # Output is grouped by group_key (e.g. Service, Account, Tag)
+def print_csv_summary(
+    results: Dict[str, Any],
+    group_key: str,
+    metric: str,
+    fileobj=sys.stdout
+) -> None:
+    """
+    Prints a CSV summary grouped by the specified key.
+    """
     unit = METRIC_UNITS.get(metric, "")
     header = ["PeriodStart", group_key, f"values ({unit})"]
     writer = csv.writer(fileobj)
     writer.writerow(header)
-    for time_period in results['ResultsByTime']:
+    for time_period in results.get('ResultsByTime', []):
         period_start = time_period['TimePeriod']['Start']
-        for group in time_period['Groups']:
+        for group in time_period.get('Groups', []):
             key = group['Keys'][0]
             amount = group['Metrics'].get(metric, {}).get('Amount', '')
             try:
@@ -236,26 +269,42 @@ def print_csv_summary(results, group_key, metric, fileobj=sys.stdout):
                 pass
             writer.writerow([period_start, key, amount])
 
-def print_csv_summary_all(results, metric, fileobj=sys.stdout):
-    # Output is a total across all groups for each period
+def print_csv_summary_all(
+    results: Dict[str, Any],
+    metric: str,
+    fileobj=sys.stdout
+) -> None:
+    """
+    Prints a CSV summary of total values for each period.
+    """
     unit = METRIC_UNITS.get(metric, "")
     header = ["PeriodStart", f"TotalValue ({unit})"]
     writer = csv.writer(fileobj)
     writer.writerow(header)
-    for time_period in results['ResultsByTime']:
+    for time_period in results.get('ResultsByTime', []):
         period_start = time_period['TimePeriod']['Start']
-        amount = time_period['Total'].get(metric, {}).get('Amount', '')
+        amount = time_period.get('Total', {}).get(metric, {}).get('Amount', '')
         try:
             amount = f"{float(amount):.6f}"
         except Exception:
             pass
         writer.writerow([period_start, amount])
 
-def print_json_summary(results, fileobj=sys.stdout):
+def print_json_summary(
+    results: Dict[str, Any],
+    fileobj=sys.stdout
+) -> None:
+    """
+    Prints the results as pretty-printed JSON.
+    """
     json.dump(results, fileobj, indent=2)
     fileobj.write("\n")
 
-def parse_metric(metric_str):
+def parse_metric(metric_str: Optional[str]) -> str:
+    """
+    Parses and validates the metric argument.
+    Only one metric is allowed.
+    """
     if not metric_str:
         return "UnblendedCost"
     metrics = [m.strip() for m in metric_str.split(",") if m.strip()]
@@ -268,14 +317,20 @@ def parse_metric(metric_str):
         sys.exit(1)
     return m
 
-def parse_date(date_str):
+def parse_date(date_str: str) -> date:
+    """
+    Parses a date string in YYYY-MM-DD format.
+    """
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
     except Exception:
         print(f"Error: Invalid date format '{date_str}'. Use YYYY-MM-DD.", file=sys.stderr)
         sys.exit(1)
 
-def main():
+def main() -> None:
+    """
+    Main entry point for the CLI tool.
+    """
     parser = argparse.ArgumentParser(
         description="Explore AWS cloud costs by service, account, or tag with flexible granularity and interval."
     )
