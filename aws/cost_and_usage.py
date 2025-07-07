@@ -126,10 +126,7 @@ METRIC_UNITS = {
 }
 
 def run_aws_cli(cmd: list) -> dict:
-    """
-    Runs the AWS CLI command and returns the parsed JSON output.
-    Exits on error.
-    """
+    """Runs the AWS CLI command and returns the parsed JSON output. Exits on error."""
     try:
         result = subprocess.run(cmd, capture_output=True, check=True, text=True)
         return json.loads(result.stdout)
@@ -138,9 +135,7 @@ def run_aws_cli(cmd: list) -> dict:
         sys.exit(1)
 
 def format_aws_datetime(dt: datetime) -> str:
-    """
-    Formats a datetime object to AWS Cost Explorer's required string format.
-    """
+    """Formats a datetime object to AWS Cost Explorer's required string format."""
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def get_date_range(
@@ -148,9 +143,7 @@ def get_date_range(
     interval: Optional[str],
     include_today: bool
 ) -> Tuple[str, str]:
-    """
-    Determines the start and end date strings for the AWS Cost Explorer query.
-    """
+    """Determines the start and end date strings for the AWS Cost Explorer query."""
     now = datetime.utcnow().date()
     if include_today:
         end = now + timedelta(days=1)
@@ -216,10 +209,7 @@ def fetch_costs(
     metric: str,
     verbose: bool = False
 ) -> Dict[str, Any]:
-    """
-    Fetches cost data from AWS Cost Explorer using the AWS CLI.
-    Handles pagination and returns all results.
-    """
+    """Fetches cost data from AWS Cost Explorer using the AWS CLI. Handles pagination and returns all results."""
     all_results = []
     next_token = None
     page = 1
@@ -237,7 +227,6 @@ def fetch_costs(
         if next_token:
             cmd += ["--starting-token", next_token]
         result = run_aws_cli(cmd)
-        # Defensive: handle missing ResultsByTime
         all_results.extend(result.get('ResultsByTime', []))
         next_token = result.get('NextPageToken')
         if not next_token:
@@ -253,9 +242,10 @@ def print_csv_summary(
 ) -> None:
     """
     Prints a CSV summary grouped by the specified key.
+    The column name for the metric is set to the metric name.
     """
     unit = METRIC_UNITS.get(metric, "")
-    header = ["PeriodStart", group_key, f"values ({unit})"]
+    header = ["PeriodStart", group_key, f"{metric}"]
     writer = csv.writer(fileobj)
     writer.writerow(header)
     for time_period in results.get('ResultsByTime', []):
@@ -276,9 +266,10 @@ def print_csv_summary_all(
 ) -> None:
     """
     Prints a CSV summary of total values for each period.
+    The column name for the metric is set to the metric name.
     """
     unit = METRIC_UNITS.get(metric, "")
-    header = ["PeriodStart", f"TotalValue ({unit})"]
+    header = ["PeriodStart", f"{metric}"]
     writer = csv.writer(fileobj)
     writer.writerow(header)
     for time_period in results.get('ResultsByTime', []):
@@ -294,17 +285,12 @@ def print_json_summary(
     results: Dict[str, Any],
     fileobj=sys.stdout
 ) -> None:
-    """
-    Prints the results as pretty-printed JSON.
-    """
+    """Prints the results as pretty-printed JSON."""
     json.dump(results, fileobj, indent=2)
     fileobj.write("\n")
 
 def parse_metric(metric_str: Optional[str]) -> str:
-    """
-    Parses and validates the metric argument.
-    Only one metric is allowed.
-    """
+    """Parses and validates the metric argument. Only one metric is allowed."""
     if not metric_str:
         return "UnblendedCost"
     metrics = [m.strip() for m in metric_str.split(",") if m.strip()]
@@ -318,9 +304,7 @@ def parse_metric(metric_str: Optional[str]) -> str:
     return m
 
 def parse_date(date_str: str) -> date:
-    """
-    Parses a date string in YYYY-MM-DD format.
-    """
+    """Parses a date string in YYYY-MM-DD format."""
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
     except Exception:
@@ -328,9 +312,7 @@ def parse_date(date_str: str) -> date:
         sys.exit(1)
 
 def main() -> None:
-    """
-    Main entry point for the CLI tool.
-    """
+    """Main entry point for the CLI tool."""
     parser = argparse.ArgumentParser(
         description="Explore AWS cloud costs by service, account, or tag with flexible granularity and interval."
     )
