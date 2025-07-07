@@ -1,5 +1,3 @@
 pandas
 numpy
-pystan==2.19.1.1 --use-pep517
-fbprophet
-plotly
+prophet
