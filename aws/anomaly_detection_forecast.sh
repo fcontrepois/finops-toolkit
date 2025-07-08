@@ -34,7 +34,12 @@
 #   - A quarter earlier's forecast
 # If the difference exceeds a user-defined percentage threshold, it is flagged.
 #
-# USAGE EXAMPLES:
+# Documentation:
+#   This script automates anomaly detection in AWS cost forecasts by leveraging
+#   the outputs of cost_and_usage.py and forecast_costs.py. It compares the most
+#   recent forecast to previous periods and flags significant changes.
+#
+# Examples of usage:
 #
 #   # 1. Basic anomaly detection with a 20% threshold
 #   bash aws/anomaly_detection_forecast.sh --threshold 20
@@ -53,6 +58,9 @@
 #
 #   # 6. Full example with all options
 #   bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric BlendedCost --group ALL --method prophet
+#
+#   # 7. Show help (by reading the script header)
+#   head -40 aws/anomaly_detection_forecast.sh
 #
 # REQUIREMENTS:
 #   - Python 3
