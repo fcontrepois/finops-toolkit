@@ -35,16 +35,24 @@
 # If the difference exceeds a user-defined percentage threshold, it is flagged.
 #
 # USAGE EXAMPLES:
-#   bash anomaly_detection_forecast.sh --threshold 20
-#   bash anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric UnblendedCost
 #
-# FLAGS:
-#   --threshold X      Percentage threshold for anomaly detection (required)
-#   --granularity G    Granularity for cost extraction (default: daily)
-#   --metric M         Metric to use (default: UnblendedCost)
-#   --group G          Grouping (default: ALL)
-#   --tag-key T        Tag key if grouping by TAG
-#   --method M         Forecasting method: sma, es, prophet, all (default: all)
+#   # 1. Basic anomaly detection with a 20% threshold
+#   bash aws/anomaly_detection_forecast.sh --threshold 20
+#
+#   # 2. Use a 10% threshold, daily granularity, and a specific metric
+#   bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric UnblendedCost
+#
+#   # 3. Use a different forecasting method (exponential smoothing)
+#   bash aws/anomaly_detection_forecast.sh --threshold 15 --method es
+#
+#   # 4. Use a custom group (e.g., by SERVICE)
+#   bash aws/anomaly_detection_forecast.sh --threshold 10 --group SERVICE
+#
+#   # 5. Use a custom tag key (when grouping by TAG)
+#   bash aws/anomaly_detection_forecast.sh --threshold 10 --group TAG --tag-key Owner
+#
+#   # 6. Full example with all options
+#   bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric BlendedCost --group ALL --method prophet
 #
 # REQUIREMENTS:
 #   - Python 3
@@ -175,11 +183,3 @@ for label in "Day Before Yesterday" "Week Ago" "Month Ago" "Quarter Ago"; do
 done
 
 rm -f "$TMPFILE"
-
-# End of script
-
-# -----------------------------------------------------------------------------
-# USAGE EXAMPLES:
-#   bash anomaly_detection_forecast.sh --threshold 20
-#   bash anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric UnblendedCost
-# -----------------------------------------------------------------------------
