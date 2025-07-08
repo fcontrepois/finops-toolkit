@@ -131,6 +131,25 @@ class TestCostAndUsage(unittest.TestCase):
         self.assertIn("UnblendedCost", csv_output)
         self.assertIn("123.456000", csv_output)
 
+    def test_print_csv_summary_all_header_unit(self):
+    results = {
+        "ResultsByTime": [
+            {"TimePeriod": {"Start": "2025-07-01"},
+             "Total": {"UnblendedCost": {"Amount": "42.123456"}}}
+        ]
+    }
+    output = StringIO()
+    cau.print_csv_summary_all(results, "UnblendedCost", fileobj=output)
+    csv_output = output.getvalue()
+    lines = csv_output.strip().splitlines()
+    # Check header
+    assert lines[0].split(",") == ["PeriodStart", "Group", "UnblendedCost"]
+    # Check row
+    row = lines[1].split(",")
+    assert row[0] == "2025-07-01"
+    assert row[1] == "Total"
+    assert row[2] == "42.123456"
+
     def test_print_json_summary(self):
         results = {"ResultsByTime": [{"TimePeriod": {"Start": "2025-07-01"}}]}
         output = StringIO()
