@@ -23,7 +23,7 @@
 # SOFTWARE.
 
 """
-# Usage Examples and Tests
+# Usage Examples
 
 # 1. Minimal required: daily granularity, default group (SERVICE)
 python aws/cost_and_usage.py --granularity daily
@@ -267,9 +267,10 @@ def print_csv_summary_all(
     """
     Prints a CSV summary of total values for each period.
     The column name for the metric is set to the metric name.
+    The group column is always 'Total'.
     """
     unit = METRIC_UNITS.get(metric, "")
-    header = ["PeriodStart", f"{metric}"]
+    header = ["PeriodStart", "Group", f"{metric}"]
     writer = csv.writer(fileobj)
     writer.writerow(header)
     for time_period in results.get('ResultsByTime', []):
@@ -279,7 +280,7 @@ def print_csv_summary_all(
             amount = f"{float(amount):.6f}"
         except Exception:
             pass
-        writer.writerow([period_start, amount])
+        writer.writerow([period_start, "Total", amount])
 
 def print_json_summary(
     results: Dict[str, Any],
