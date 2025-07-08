@@ -1,7 +1,7 @@
 # anomaly_detection_forecast.sh
 #
 # MIT License
-#
+# 
 # Copyright (c) 2025 Frank Contrepois
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -102,13 +102,13 @@ if [[ -z "$THRESHOLD" ]]; then
   exit 1
 fi
 
-# Date calculations
+# Date calculations (macOS/BSD style)
 TODAY=$(date -u +%Y-%m-%d)
-YESTERDAY=$(date -u -d "yesterday" +%Y-%m-%d)
-DAY_BEFORE_YESTERDAY=$(date -u -d "2 days ago" +%Y-%m-%d)
-WEEK_AGO=$(date -u -d "7 days ago" +%Y-%m-%d)
-MONTH_AGO=$(date -u -d "1 month ago" +%Y-%m-%d)
-QUARTER_AGO=$(date -u -d "3 months ago" +%Y-%m-%d)
+YESTERDAY=$(date -u -v-1d +%Y-%m-%d)
+DAY_BEFORE_YESTERDAY=$(date -u -v-2d +%Y-%m-%d)
+WEEK_AGO=$(date -u -v-7d +%Y-%m-%d)
+MONTH_AGO=$(date -u -v-1m +%Y-%m-%d)
+QUARTER_AGO=$(date -u -v-3m +%Y-%m-%d)
 
 # Prepare cost_and_usage.py command
 CMD="python3 aws/cost_and_usage.py --granularity $GRANULARITY --group $GROUP --metrics $METRIC --output-format csv"
@@ -117,14 +117,13 @@ if [[ "$GROUP" == "TAG" && -n "$TAG_KEY" ]]; then
 fi
 
 # Get costs for the last 100 days (enough for all lookbacks)
+START_DATE=$(date -u -v-100d +%Y-%m-%d)
 TMPFILE=$(mktemp)
-$CMD --start $(date -u -d "100 days ago" +%Y-%m-%d) --end $TODAY > "$TMPFILE"
+$CMD --start $START_DATE --end $TODAY > "$TMPFILE"
 
 # Prepare forecast_costs.py command
 FCAST_CMD="python3 aws/forecast_costs.py --date-column PeriodStart --value-column $METRIC --method $METHOD"
 if [[ "$GROUP" != "ALL" ]]; then
-  # For groupings, you may want to add --group-column and --group-value
-  # This script only supports ALL for simplicity, but can be extended
   echo "Grouped anomaly detection for forecasts is not implemented in this script." >&2
   rm -f "$TMPFILE"
   exit 2
@@ -133,7 +132,6 @@ fi
 # Helper: get forecast for a specific date
 get_forecast_for_date() {
   local target_date="$1"
-  # Filter up to the target date, forecast for the next day (to get cumulative up to that day)
   awk -F, -v d="$target_date" 'NR==1 || $1<=d' "$TMPFILE" | \
     $FCAST_CMD --output-format time-table 2>/dev/null | \
     awk -F, -v d="$target_date" '$1==d && $4=="Simple Moving Average (window=7)" {print $2}' | head -1
