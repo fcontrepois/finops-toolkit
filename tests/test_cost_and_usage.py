@@ -23,8 +23,17 @@
 """
 # Tests for aws/cost_and_usage.py
 
+This file contains unit tests for the main cost and usage script in the FinOps Toolkit.
+
 # Example invocations (see also docstring in cost_and_usage.py):
 
+# Run the tests with:
+python -m unittest tests/test_cost_and_usage.py
+
+# Or, from the root of the repository:
+pytest tests/test_cost_and_usage.py
+
+# Example invocations of the script under test:
 # python aws/cost_and_usage.py --granularity daily
 # python aws/cost_and_usage.py --granularity daily --group SERVICE
 # python aws/cost_and_usage.py --granularity daily --group ALL
