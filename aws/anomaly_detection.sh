@@ -1,7 +1,7 @@
-# anomaly_detection.sh
+# anomaly_detection_forecast.sh
 #
 # MIT License
-# 
+#
 # Copyright (c) 2025 Frank Contrepois
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -23,19 +23,20 @@
 # SOFTWARE.
 #
 # -----------------------------------------------------------------------------
-# Anomaly Detection Script for AWS Cost Data
+# Anomaly Detection Script for AWS Cost Forecasts
 #
-# This script uses the finops-toolkit's cost_and_usage.py and forecast_costs.py
-# to detect anomalies in AWS cost data by comparing yesterday's cost to:
-#   - The day before yesterday
-#   - A week earlier
-#   - A month earlier
-#   - A quarter earlier
+# This script uses finops-toolkit's cost_and_usage.py and forecast_costs.py
+# to detect anomalies in forecasted AWS cost data by comparing yesterday's
+# forecast to:
+#   - The day before yesterday's forecast
+#   - A week earlier's forecast
+#   - A month earlier's forecast
+#   - A quarter earlier's forecast
 # If the difference exceeds a user-defined percentage threshold, it is flagged.
 #
 # USAGE EXAMPLES:
-#   bash anomaly_detection.sh --threshold 20
-#   bash anomaly_detection.sh --threshold 10 --granularity daily --metric UnblendedCost
+#   bash anomaly_detection_forecast.sh --threshold 20
+#   bash anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric UnblendedCost
 #
 # FLAGS:
 #   --threshold X      Percentage threshold for anomaly detection (required)
@@ -43,11 +44,12 @@
 #   --metric M         Metric to use (default: UnblendedCost)
 #   --group G          Grouping (default: ALL)
 #   --tag-key T        Tag key if grouping by TAG
+#   --method M         Forecasting method: sma, es, prophet, all (default: all)
 #
 # REQUIREMENTS:
 #   - Python 3
 #   - AWS CLI configured
-#   - pandas, numpy (for forecast_costs.py)
+#   - pandas, numpy, prophet (for forecast_costs.py)
 #   - finops-toolkit's aws/cost_and_usage.py and aws/forecast_costs.py in PATH
 # -----------------------------------------------------------------------------
 
@@ -59,6 +61,7 @@ GRANULARITY="daily"
 METRIC="UnblendedCost"
 GROUP="ALL"
 TAG_KEY=""
+METHOD="all"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -81,6 +84,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tag-key)
       TAG_KEY="$2"
+      shift 2
+      ;;
+    --method)
+      METHOD="$2"
       shift 2
       ;;
     *)
@@ -109,31 +116,35 @@ if [[ "$GROUP" == "TAG" && -n "$TAG_KEY" ]]; then
   CMD="$CMD --tag-key $TAG_KEY"
 fi
 
-# Get costs for the relevant days
+# Get costs for the last 100 days (enough for all lookbacks)
 TMPFILE=$(mktemp)
-$CMD --start $DAY_BEFORE_YESTERDAY --end $TODAY > "$TMPFILE"
+$CMD --start $(date -u -d "100 days ago" +%Y-%m-%d) --end $TODAY > "$TMPFILE"
 
-# Helper: get value for a date
-get_value() {
-  local date="$1"
-  awk -F, -v d="$date" 'NR>1 && $1==d {print $2}' "$TMPFILE"
+# Prepare forecast_costs.py command
+FCAST_CMD="python3 aws/forecast_costs.py --date-column PeriodStart --value-column $METRIC --method $METHOD"
+if [[ "$GROUP" != "ALL" ]]; then
+  # For groupings, you may want to add --group-column and --group-value
+  # This script only supports ALL for simplicity, but can be extended
+  echo "Grouped anomaly detection for forecasts is not implemented in this script." >&2
+  rm -f "$TMPFILE"
+  exit 2
+fi
+
+# Helper: get forecast for a specific date
+get_forecast_for_date() {
+  local target_date="$1"
+  # Filter up to the target date, forecast for the next day (to get cumulative up to that day)
+  awk -F, -v d="$target_date" 'NR==1 || $1<=d' "$TMPFILE" | \
+    $FCAST_CMD --output-format time-table 2>/dev/null | \
+    awk -F, -v d="$target_date" '$1==d && $4=="Simple Moving Average (window=7)" {print $2}' | head -1
 }
 
-# If grouping is ALL, the value is in column 2, else in column 3
-if [[ "$GROUP" == "ALL" ]]; then
-  YESTERDAY_VAL=$(awk -F, -v d="$YESTERDAY" 'NR>1 && $1==d {print $2}' "$TMPFILE")
-  DAY_BEFORE_YESTERDAY_VAL=$(awk -F, -v d="$DAY_BEFORE_YESTERDAY" 'NR>1 && $1==d {print $2}' "$TMPFILE")
-  WEEK_AGO_VAL=$(awk -F, -v d="$WEEK_AGO" 'NR>1 && $1==d {print $2}' "$TMPFILE")
-  MONTH_AGO_VAL=$(awk -F, -v d="$MONTH_AGO" 'NR>1 && $1==d {print $2}' "$TMPFILE")
-  QUARTER_AGO_VAL=$(awk -F, -v d="$QUARTER_AGO" 'NR>1 && $1==d {print $2}' "$TMPFILE")
-else
-  # For groupings, print all groups for each date
-  YESTERDAY_VALS=$(awk -F, -v d="$YESTERDAY" 'NR>1 && $1==d {print $2","$3}' "$TMPFILE")
-  DAY_BEFORE_YESTERDAY_VALS=$(awk -F, -v d="$DAY_BEFORE_YESTERDAY" 'NR>1 && $1==d {print $2","$3}' "$TMPFILE")
-  WEEK_AGO_VALS=$(awk -F, -v d="$WEEK_AGO" 'NR>1 && $1==d {print $2","$3}' "$TMPFILE")
-  MONTH_AGO_VALS=$(awk -F, -v d="$MONTH_AGO" 'NR>1 && $1==d {print $2","$3}' "$TMPFILE")
-  QUARTER_AGO_VALS=$(awk -F, -v d="$QUARTER_AGO" 'NR>1 && $1==d {print $2","$3}' "$TMPFILE")
-fi
+# Get forecasts for each date
+YESTERDAY_FCAST=$(get_forecast_for_date "$YESTERDAY")
+DAY_BEFORE_YESTERDAY_FCAST=$(get_forecast_for_date "$DAY_BEFORE_YESTERDAY")
+WEEK_AGO_FCAST=$(get_forecast_for_date "$WEEK_AGO")
+MONTH_AGO_FCAST=$(get_forecast_for_date "$MONTH_AGO")
+QUARTER_AGO_FCAST=$(get_forecast_for_date "$QUARTER_AGO")
 
 # Function to compute percent difference
 percent_diff() {
@@ -147,55 +158,30 @@ percent_diff() {
 }
 
 # Output header
-echo "Anomaly Detection Report (Threshold: $THRESHOLD%)"
-echo "Comparing yesterday's cost to previous periods."
+echo "Anomaly Detection Report (Forecast, Threshold: $THRESHOLD%)"
+echo "Comparing yesterday's forecast to previous periods (SMA, window=7)."
 
-if [[ "$GROUP" == "ALL" ]]; then
-  # Single value comparison
-  for label in "Day Before Yesterday" "Week Ago" "Month Ago" "Quarter Ago"; do
-    case $label in
-      "Day Before Yesterday") PREV_VAL="$DAY_BEFORE_YESTERDAY_VAL";;
-      "Week Ago") PREV_VAL="$WEEK_AGO_VAL";;
-      "Month Ago") PREV_VAL="$MONTH_AGO_VAL";;
-      "Quarter Ago") PREV_VAL="$QUARTER_AGO_VAL";;
-    esac
-    DIFF=$(percent_diff "$YESTERDAY_VAL" "$PREV_VAL")
-    if [[ "$DIFF" != "N/A" && ( $(echo "$DIFF > $THRESHOLD" | bc -l) || $(echo "$DIFF < -$THRESHOLD" | bc -l) ) ]]; then
-      echo "ALERT: $label: Change = $DIFF% (Threshold: $THRESHOLD%)"
-    else
-      echo "$label: Change = $DIFF%"
-    fi
-  done
-else
-  # Grouped comparison
-  for label in "Day Before Yesterday" "Week Ago" "Month Ago" "Quarter Ago"; do
-    case $label in
-      "Day Before Yesterday") YEST="$YESTERDAY_VALS"; PREV="$DAY_BEFORE_YESTERDAY_VALS";;
-      "Week Ago") YEST="$YESTERDAY_VALS"; PREV="$WEEK_AGO_VALS";;
-      "Month Ago") YEST="$YESTERDAY_VALS"; PREV="$MONTH_AGO_VALS";;
-      "Quarter Ago") YEST="$YESTERDAY_VALS"; PREV="$QUARTER_AGO_VALS";;
-    esac
-    # Build associative arrays for group->value
-    declare -A yest_map prev_map
-    while IFS=, read -r group val; do
-      yest_map["$group"]="$val"
-    done <<< "$YEST"
-    while IFS=, read -r group val; do
-      prev_map["$group"]="$val"
-    done <<< "$PREV"
-    for group in "${!yest_map[@]}"; do
-      yval="${yest_map[$group]}"
-      pval="${prev_map[$group]}"
-      DIFF=$(percent_diff "$yval" "$pval")
-      if [[ "$DIFF" != "N/A" && ( $(echo "$DIFF > $THRESHOLD" | bc -l) || $(echo "$DIFF < -$THRESHOLD" | bc -l) ) ]]; then
-        echo "ALERT: $label [$group]: Change = $DIFF% (Threshold: $THRESHOLD%)"
-      else
-        echo "$label [$group]: Change = $DIFF%"
-      fi
-    done
-  done
-fi
+for label in "Day Before Yesterday" "Week Ago" "Month Ago" "Quarter Ago"; do
+  case $label in
+    "Day Before Yesterday") PREV_VAL="$DAY_BEFORE_YESTERDAY_FCAST";;
+    "Week Ago") PREV_VAL="$WEEK_AGO_FCAST";;
+    "Month Ago") PREV_VAL="$MONTH_AGO_FCAST";;
+    "Quarter Ago") PREV_VAL="$QUARTER_AGO_FCAST";;
+  esac
+  DIFF=$(percent_diff "$YESTERDAY_FCAST" "$PREV_VAL")
+  if [[ "$DIFF" != "N/A" && ( $(echo "$DIFF > $THRESHOLD" | bc -l) || $(echo "$DIFF < -$THRESHOLD" | bc -l) ) ]]; then
+    echo "ALERT: $label: Change = $DIFF% (Threshold: $THRESHOLD%)"
+  else
+    echo "$label: Change = $DIFF%"
+  fi
+done
 
 rm -f "$TMPFILE"
 
 # End of script
+
+# -----------------------------------------------------------------------------
+# USAGE EXAMPLES:
+#   bash anomaly_detection_forecast.sh --threshold 20
+#   bash anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric UnblendedCost
+# -----------------------------------------------------------------------------
