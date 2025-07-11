@@ -36,21 +36,22 @@
 #     - prophet: Forecasted value using Prophet (if installed)
 #
 #   The forecast is a continuation of the input, i.e., the forecasted values start
-#   after the last date in the input and continue for the specified number of periods.
+#   after the last date in the input and continue for the next year (365 days for daily,
+#   12 months for monthly).
 #
 # Examples of usage:
 #
-#   # 1. Forecast 30 days ahead from a CSV file (default params)
-#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --forecast-periods 30
+#   # 1. Forecast the next year (daily granularity) from a CSV file (default params)
+#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
 #
-#   # 2. Forecast 12 months ahead from a monthly CSV file
-#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --forecast-periods 12
+#   # 2. Forecast the next year (monthly granularity) from a monthly CSV file
+#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
 #
 #   # 3. Forecast from stdin (pipe from cost_and_usage.py)
-#   python aws/cost_and_usage.py --granularity daily --output-format csv | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost --forecast-periods 30
+#   python aws/cost_and_usage.py --granularity daily --output-format csv | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
 #
 #   # 4. Use custom SMA window and ES alpha
-#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3 --forecast-periods 30
+#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3
 #
 # -----------------------------------------------------------------------------
 
@@ -69,7 +70,6 @@ def parse_args():
     parser.add_argument('--input', required=False, help='Input CSV file. If omitted, reads from stdin.')
     parser.add_argument('--date-column', required=True, help='Name of the date column (e.g., PeriodStart)')
     parser.add_argument('--value-column', required=True, help='Name of the value column (e.g., UnblendedCost)')
-    parser.add_argument('--forecast-periods', type=int, default=30, help='Number of periods to forecast (default: 30)')
     parser.add_argument('--sma-window', type=int, default=7, help='Window size for Simple Moving Average (default: 7)')
     parser.add_argument('--es-alpha', type=float, default=0.5, help='Alpha for Exponential Smoothing (default: 0.5)')
     parser.add_argument('--prophet-daily-seasonality', type=lambda x: x.lower() == 'true', default=True, help='Prophet daily seasonality (default: True)')
@@ -113,14 +113,14 @@ def infer_granularity(df, date_col):
         return 'monthly'
     return 'daily'
 
-def get_forecast_dates(last_date, periods, granularity):
+def get_forecast_dates(last_date, granularity):
     dates = []
     if granularity == 'monthly':
-        for i in range(1, periods+1):
+        for i in range(1, 13):
             next_month = (last_date + pd.DateOffset(months=i)).replace(day=1)
             dates.append(next_month)
     else:
-        for i in range(1, periods+1):
+        for i in range(1, 366):
             dates.append(last_date + timedelta(days=i))
     return dates
 
@@ -166,7 +166,7 @@ def main():
     value_col = args.value_column
     granularity = infer_granularity(df, date_col)
     last_date = df[date_col].max()
-    forecast_dates = get_forecast_dates(last_date, args.forecast_periods, granularity)
+    forecast_dates = get_forecast_dates(last_date, granularity)
 
     # Prepare output DataFrame: all input + forecasted dates
     all_dates = list(df[date_col]) + forecast_dates
