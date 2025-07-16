@@ -104,6 +104,7 @@ import sys
 import csv
 from datetime import datetime, timedelta, date
 from typing import Optional, Tuple, Dict, Any
+import shutil
 
 VALID_METRICS = [
     "BlendedCost",
@@ -125,13 +126,36 @@ METRIC_UNITS = {
     "NormalizedUsageAmount": "NormalizedUnits"
 }
 
+def check_aws_cli_available():
+    """Checks if AWS CLI is available in PATH and configured."""
+    if shutil.which("aws") is None:
+        print("Error: AWS CLI is not installed or not found in PATH.", file=sys.stderr)
+        sys.exit(1)
+    # Check if AWS CLI is configured (basic check)
+    try:
+        result = subprocess.run(["aws", "sts", "get-caller-identity"], capture_output=True, check=True, text=True)
+    except subprocess.CalledProcessError as e:
+        if "Unable to locate credentials" in e.stderr:
+            print("Error: AWS CLI is not configured with credentials.", file=sys.stderr)
+        else:
+            print(f"Error: AWS CLI configuration issue: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
+
 def run_aws_cli(cmd: list) -> dict:
-    """Runs the AWS CLI command and returns the parsed JSON output. Exits on error."""
+    """Runs the AWS CLI command and returns the parsed JSON output. Exits on error with specific messages."""
     try:
         result = subprocess.run(cmd, capture_output=True, check=True, text=True)
         return json.loads(result.stdout)
     except subprocess.CalledProcessError as e:
-        print("Error running AWS CLI:", e.stderr, file=sys.stderr)
+        stderr = e.stderr or ""
+        if "Unable to locate credentials" in stderr:
+            print("Error: AWS CLI credentials not found. Please configure your AWS credentials.", file=sys.stderr)
+        elif "is not authorized to perform" in stderr:
+            print(f"Error: Permission denied. {stderr}", file=sys.stderr)
+        elif "could not be found" in stderr or "command not found" in stderr:
+            print("Error: AWS CLI command not found. Is AWS CLI installed?", file=sys.stderr)
+        else:
+            print(f"Error running AWS CLI: {stderr}", file=sys.stderr)
         sys.exit(1)
 
 def format_aws_datetime(dt: datetime) -> str:
@@ -314,6 +338,7 @@ def parse_date(date_str: str) -> date:
 
 def main() -> None:
     """Main entry point for the CLI tool."""
+    check_aws_cli_available()  # Pre-check for AWS CLI
     parser = argparse.ArgumentParser(
         description="Explore AWS cloud costs by service, account, or tag with flexible granularity and interval."
     )
