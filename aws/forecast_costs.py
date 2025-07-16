@@ -26,7 +26,12 @@
 #   This script forecasts AWS costs using three algorithms: Simple Moving Average (SMA),
 #   Exponential Smoothing (ES), and Facebook Prophet. It outputs a CSV table to stdout
 #   with the same granularity as the input (daily or monthly), and for each forecasted
-#   date, provides a column for each algorithm.
+#   date, provides a column for each algorithm. The output is suitable for graphing in Excel.
+#
+#   Requirements:
+#     - Input must have at least 10 valid (non-NaN) rows after cleaning, or the script will warn and exit.
+#     - Prophet is optional; if not installed, Prophet forecasts will be NaN and a warning will be shown.
+#     - Missing/NaN values in the value column are dropped.
 #
 #   The output columns are:
 #     - <date_column>: The date of the forecast
@@ -38,6 +43,13 @@
 #   The forecast is a continuation of the input, i.e., the forecasted values start
 #   after the last date in the input and continue for the next year (365 days for daily,
 #   12 months for monthly).
+#
+#   The --milestone-summary flag prints a summary table of total forecasted values at key milestones:
+#     - End of this month
+#     - End of next month
+#     - End of next quarter
+#     - End of following quarter
+#     - End of year
 #
 # Examples of usage:
 #
@@ -53,6 +65,10 @@
 #   # 4. Use custom SMA window and ES alpha
 #   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3
 #
+#   # 5. Print milestone summary
+#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+#
+#   # 6. Test CSVs for development are in tests/input/
 # -----------------------------------------------------------------------------
 
 import argparse
@@ -77,6 +93,7 @@ def parse_args():
     parser.add_argument('--prophet-weekly-seasonality', type=lambda x: x.lower() == 'true', default=False, help='Prophet weekly seasonality (default: False)')
     parser.add_argument('--prophet-changepoint-prior-scale', type=float, default=0.05, help='Prophet changepoint prior scale (default: 0.05)')
     parser.add_argument('--prophet-seasonality-prior-scale', type=float, default=10.0, help='Prophet seasonality prior scale (default: 10.0)')
+    parser.add_argument('--milestone-summary', action='store_true', help='Print a summary table of total forecasted values at key milestones.')
     return parser.parse_args()
 
 def load_data(args):
@@ -95,7 +112,7 @@ def load_data(args):
         sys.exit(2)
     df[args.date_column] = pd.to_datetime(df[args.date_column], errors='coerce')
     df = df.sort_values(args.date_column)
-    df = df[[args.date_column, args.value_column]].dropna()
+    df = df[[args.date_column, args.value_column]].dropna(subset=[args.date_column, args.value_column])
     df[args.value_column] = pd.to_numeric(df[args.value_column], errors='coerce')
     df = df.dropna(subset=[args.value_column])
     if df.empty:
@@ -123,6 +140,26 @@ def get_forecast_dates(last_date, granularity):
         for i in range(1, 366):
             dates.append(last_date + timedelta(days=i))
     return dates
+
+def get_milestone_dates(last_date, granularity):
+    """Return a dict of milestone labels to dates for which to sum forecasted values."""
+    from pandas.tseries.offsets import MonthEnd, QuarterEnd, YearEnd
+    milestones = {}
+    if granularity == 'monthly':
+        # End of this month, next month, next quarter, following quarter, year
+        milestones['end_of_this_month'] = (last_date + MonthEnd(1)).date()
+        milestones['end_of_next_month'] = (last_date + MonthEnd(2)).date()
+        milestones['end_of_next_quarter'] = (last_date + QuarterEnd(1)).date()
+        milestones['end_of_following_quarter'] = (last_date + QuarterEnd(2)).date()
+        milestones['end_of_year'] = (last_date + YearEnd(1)).date()
+    else:
+        # For daily, find the last day of each period after last_date
+        milestones['end_of_this_month'] = (last_date + MonthEnd(1)).date()
+        milestones['end_of_next_month'] = (last_date + MonthEnd(2)).date()
+        milestones['end_of_next_quarter'] = (last_date + QuarterEnd(1)).date()
+        milestones['end_of_following_quarter'] = (last_date + QuarterEnd(2)).date()
+        milestones['end_of_year'] = (last_date + YearEnd(1)).date()
+    return milestones
 
 def simple_moving_average_forecast(df, value_col, forecast_dates, window):
     last_sma = df[value_col].rolling(window=window, min_periods=1).mean().iloc[-1]
@@ -162,6 +199,9 @@ def prophet_forecast(df, date_col, value_col, forecast_dates, args):
 def main():
     args = parse_args()
     df = load_data(args)
+    if len(df) < 10:
+        print("Warning: Not enough data to forecast. At least 10 dates are required.", file=sys.stderr)
+        sys.exit(3)
     date_col = args.date_column
     value_col = args.value_column
     granularity = infer_granularity(df, date_col)
@@ -189,8 +229,23 @@ def main():
     out_df.loc[forecast_mask, 'es'] = es_forecast
     out_df.loc[forecast_mask, 'prophet'] = prophet_forecast_vals
 
-    # Output as CSV to stdout
+    # Output as CSV to stdout (for Excel graphing)
     out_df.to_csv(sys.stdout, index=False)
+
+    # If milestone summary requested, print it after the CSV
+    if getattr(args, 'milestone_summary', False):
+        print("\n# Forecast Milestone Summary\n", file=sys.stdout)
+        milestones = get_milestone_dates(last_date, granularity)
+        forecast_only = out_df[forecast_mask].copy()
+        forecast_only[date_col] = pd.to_datetime(forecast_only[date_col])
+        for label, mdate in milestones.items():
+            # For each algorithm, sum forecasted values up to and including the milestone date
+            mask = forecast_only[date_col] <= pd.Timestamp(mdate)
+            print(f"{label} ({mdate}):", file=sys.stdout)
+            for algo in ['sma', 'es', 'prophet']:
+                total = forecast_only.loc[mask, algo].sum()
+                print(f"  {algo}: {total:.2f}", file=sys.stdout)
+            print("", file=sys.stdout)
 
 if __name__ == "__main__":
     main()
