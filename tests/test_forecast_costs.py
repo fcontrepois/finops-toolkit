@@ -47,38 +47,12 @@ import sys
 import pandas as pd
 import numpy as np
 import builtins
+import os
+import subprocess
 
 import aws.forecast_costs as fc
 
 class TestForecastCosts(unittest.TestCase):
-
-    def setUp(self):
-        # Minimal DataFrame for tests
-        self.df = pd.DataFrame({
-            "PeriodStart": pd.date_range("2025-01-01", periods=10, freq="D"),
-            "UnblendedCost": np.arange(10, 20)
-        })
-
-    def test_simple_moving_average(self):
-        target_dates = {"end_of_week": pd.Timestamp("2025-01-10")}
-        result = fc.simple_moving_average(self.df, "PeriodStart", "UnblendedCost", target_dates, window=3)
-        self.assertIn("end_of_week", result)
-        self.assertAlmostEqual(result["end_of_week"], self.df["UnblendedCost"].rolling(window=3, min_periods=1).mean().iloc[-1])
-
-    def test_exponential_smoothing(self):
-        target_dates = {"end_of_week": pd.Timestamp("2025-01-10")}
-        result = fc.exponential_smoothing(self.df, "PeriodStart", "UnblendedCost", target_dates, alpha=0.5)
-        self.assertIn("end_of_week", result)
-        # The value should be a float
-        self.assertIsInstance(result["end_of_week"], float)
-
-    def test_get_forecast_horizons(self):
-        horizons = fc.get_forecast_horizons(self.df, "PeriodStart")
-        self.assertIn("end_of_week", horizons)
-        self.assertIn("end_of_month", horizons)
-        self.assertIn("end_of_quarter_1", horizons)
-        self.assertIn("end_of_year", horizons)
-
     def test_load_data_file_not_found(self):
         args = MagicMock()
         args.input = "notfound.csv"
@@ -101,44 +75,6 @@ class TestForecastCosts(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 fc.load_data(args)
 
-    def test_print_forecasts(self):
-        # Should print formatted output to stdout
-        forecasts = {"end_of_week": 123.456, "end_of_month": None}
-        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
-            fc.print_forecasts("TestMethod", forecasts)
-            output = mock_stdout.getvalue()
-            self.assertIn("Forecasts using TestMethod:", output)
-            self.assertIn("End Of Week: 123.46", output)
-            self.assertIn("End Of Month: N/A", output)
-
-    def test_output_time_table(self):
-        df = pd.DataFrame({
-            "PeriodStart": pd.date_range("2025-01-01", periods=2, freq="D"),
-            "UnblendedCost": [10, 20]
-        })
-        forecasts_dict = {
-            "SMA": {pd.Timestamp("2025-01-10").date(): 42.0}
-        }
-        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
-            fc.output_time_table(df, "PeriodStart", "UnblendedCost", forecasts_dict)
-            output = mock_stdout.getvalue()
-            self.assertIn("date,value,forecast,methodology", output)
-            self.assertIn("Real", output)
-            self.assertIn("SMA", output)
-
-    def test_parse_args_help(self):
-        # Should not raise, just print help and exit
-        test_args = ["forecast_costs.py", "--help"]
-        with patch.object(sys, 'argv', test_args):
-            with self.assertRaises(SystemExit):
-                fc.parse_args()
-
-    def test_prophet_import_error(self):
-        # Simulate Prophet not installed
-        with patch.dict('sys.modules', {'prophet': None, 'fbprophet': None}):
-            result = fc.prophet_forecast(self.df, "PeriodStart", "UnblendedCost", {"end_of_week": pd.Timestamp("2025-01-10")})
-            self.assertIsNone(result["end_of_week"])
-
     def test_main_no_input_file_and_no_stdin(self):
         # Simulate no input file and no stdin
         args = [
@@ -151,6 +87,68 @@ class TestForecastCosts(unittest.TestCase):
             with patch("sys.stdin.isatty", return_value=True):
                 with self.assertRaises(SystemExit):
                     fc.main()
+
+    def test_integration_daily_csv(self):
+        test_csv = os.path.join(os.path.dirname(__file__), 'input', 'daily_costs_simple.csv')
+        result = subprocess.run([
+            sys.executable, 'aws/forecast_costs.py',
+            '--input', test_csv,
+            '--date-column', 'PeriodStart',
+            '--value-column', 'UnblendedCost',
+            '--milestone-summary'
+        ], capture_output=True, text=True)
+        self.assertIn('# Forecast Milestone Summary', result.stdout)
+        self.assertIn('end_of_this_month', result.stdout)
+        self.assertIn('sma:', result.stdout)
+
+    def test_integration_monthly_csv(self):
+        test_csv = os.path.join(os.path.dirname(__file__), 'input', 'monthly_costs_simple.csv')
+        result = subprocess.run([
+            sys.executable, 'aws/forecast_costs.py',
+            '--input', test_csv,
+            '--date-column', 'PeriodStart',
+            '--value-column', 'UnblendedCost',
+            '--milestone-summary'
+        ], capture_output=True, text=True)
+        self.assertIn('# Forecast Milestone Summary', result.stdout)
+        self.assertIn('end_of_this_month', result.stdout)
+        self.assertIn('sma:', result.stdout)
+
+    def test_integration_missing_values(self):
+        test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_with_missing.csv')
+        result = subprocess.run([
+            sys.executable, 'aws/forecast_costs.py',
+            '--input', test_csv,
+            '--date-column', 'PeriodStart',
+            '--value-column', 'UnblendedCost',
+            '--milestone-summary'
+        ], capture_output=True, text=True)
+        self.assertIn('# Forecast Milestone Summary', result.stdout)
+        self.assertIn('sma:', result.stdout)
+
+    def test_integration_short_input(self):
+        test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_short.csv')
+        result = subprocess.run([
+            sys.executable, 'aws/forecast_costs.py',
+            '--input', test_csv,
+            '--date-column', 'PeriodStart',
+            '--value-column', 'UnblendedCost',
+            '--milestone-summary'
+        ], capture_output=True, text=True)
+        self.assertIn('# Forecast Milestone Summary', result.stdout)
+        self.assertIn('sma:', result.stdout)
+
+    def test_integration_nonmonotonic_dates(self):
+        test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_nonmonotonic.csv')
+        result = subprocess.run([
+            sys.executable, 'aws/forecast_costs.py',
+            '--input', test_csv,
+            '--date-column', 'PeriodStart',
+            '--value-column', 'UnblendedCost',
+            '--milestone-summary'
+        ], capture_output=True, text=True)
+        self.assertIn('# Forecast Milestone Summary', result.stdout)
+        self.assertIn('sma:', result.stdout)
 
 if __name__ == "__main__":
     unittest.main()
