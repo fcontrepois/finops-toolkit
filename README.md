@@ -8,14 +8,14 @@ A growing collection of Python scripts that use the AWS CLI to pull cost and usa
 
 ## Features
 
-- **Flexible granularity:** Choose between hourly, daily, or monthly data. Sometimes you need to know exactly when your budget went up in smoke.
-- **Custom intervals:** Report by day, week, month, quarter, semester, or year. Or just pick “today” if you like living dangerously.
-- **Group by:** Service, linked account, or tag. Group therapy for your cloud costs.
-- **Forecasting:** Predict your future AWS costs using three forecasting methods—Simple Moving Average, Exponential Smoothing, and Facebook Prophet. Peer into the financial abyss with style. Prophet is optional; if not installed, Prophet forecasts will be NaN and a warning will be shown.
+- **Flexible granularity:** Choose between hourly, daily, or monthly data.
+- **Custom intervals:** Report by day, week, month, quarter, semester, or year.
+- **Group by:** Service, linked account, or tag.
+- **Forecasting:** Predict your future AWS costs using three forecasting methods—Simple Moving Average, Exponential Smoothing, and Facebook Prophet. Prophet is optional; if not installed, Prophet forecasts will be NaN and a warning will be shown.
 - **Milestone summary:** Use `--milestone-summary` to print a summary table of forecasted values at key milestones (end of month, next month, next quarter, following quarter, year).
-- **Anomaly detection:** Automatically flag suspicious jumps in your forecasted costs. Never be surprised by a sudden spike again (unless you enjoy surprises).
+- **Anomaly detection:** Automatically flag suspicious jumps in your forecasted costs.
 - **Output formats:** CSV, always delivered to standard out, so you can redirect, pipe, or graph in Excel.
-- **Extensible:** New scripts will be added over time, working together to make FinOps more standardised than DIY, yet far more flexible than any boxed-in tool.
+- **Extensible:** New scripts will be added over time.
 - **No nonsense:** No web dashboards, no vendor lock-in, and absolutely no blockchain.
 
 ## Quickstart
@@ -128,21 +128,13 @@ python aws/cost_and_usage.py --granularity monthly --group SERVICE --output-form
 python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
 ```
 
-### anomaly_detection_forecast.sh
+## Testing
 
-- `--threshold` Required. Percentage change to flag as an anomaly.
-- `--granularity`, `--metric`, `--group`, `--tag-key`, `--method` Customise the anomaly detection.
-- Uses cost_and_usage.py and forecast_costs.py under the hood.
-
-**Examples:**
+- Integration and edge-case tests use CSV files in `tests/input/`.
+- To run the tests:
 
 ```bash
-bash aws/anomaly_detection_forecast.sh --threshold 20
-bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric UnblendedCost
-bash aws/anomaly_detection_forecast.sh --threshold 15 --method es
-bash aws/anomaly_detection_forecast.sh --threshold 10 --group SERVICE
-bash aws/anomaly_detection_forecast.sh --threshold 10 --group TAG --tag-key Owner
-bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric BlendedCost --group ALL --method prophet
+PYTHONPATH=. pytest -v tests/test_forecast_costs.py
 ```
 
 ## Roadmap
@@ -163,15 +155,6 @@ MIT License. Use, fork, and share. Just don’t blame us if your cloud bill stil
 ## Contributing
 
 Pull requests, witty comments, and bug reports are all welcome. If you can make cloud billing funnier, you’re hired (in spirit).
-
-## Testing
-
-- Integration and edge-case tests use CSV files in `tests/input/`.
-- To run the tests:
-
-```bash
-PYTHONPATH=. pytest -v tests/test_forecast_costs.py
-```
 
 ---
 
