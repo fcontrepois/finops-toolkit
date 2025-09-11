@@ -434,12 +434,16 @@ def main() -> None:
             # Re-raise for other argument errors
             raise
     
-    # Now check AWS CLI after we know arguments are valid
-    check_aws_cli_available()
-
     # Error if --tag-key is used without --group TAG
     if args.tag_key and args.group != "TAG":
         handle_error("--tag-key can only be used with --group TAG.", 1)
+    
+    # Error if --group TAG is used without --tag-key
+    if args.group == "TAG" and not args.tag_key:
+        handle_error("--tag-key is required when grouping by TAG", 1)
+
+    # Now check AWS CLI after we know arguments are valid
+    check_aws_cli_available()
 
     granularity_map = {
         "hourly": "HOURLY",
