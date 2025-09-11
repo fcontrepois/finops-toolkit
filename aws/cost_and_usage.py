@@ -1,5 +1,4 @@
-# aws/cost_and_usage.py
-
+#!/usr/bin/env python3
 # MIT License
 #
 # Copyright (c) 2025 Frank Contrepois
@@ -23,89 +22,62 @@
 # SOFTWARE.
 
 """
-# Usage Examples
+Command Name: cost_and_usage
 
-# 1. Minimal required: daily granularity, default group (SERVICE)
-python aws/cost_and_usage.py --granularity daily
+Purpose:
+    Fetches AWS cost and usage data from Cost Explorer API and outputs it in structured CSV format.
+    Supports multiple granularities, grouping options, and date ranges.
 
-# 2. All granularities
-python aws/cost_and_usage.py --granularity hourly
-python aws/cost_and_usage.py --granularity daily
-python aws/cost_and_usage.py --granularity monthly
+Input Format:
+    N/A (Data Source Command - fetches from AWS API)
 
-# 3. All intervals
-python aws/cost_and_usage.py --granularity daily --interval day
-python aws/cost_and_usage.py --granularity daily --interval week
-python aws/cost_and_usage.py --granularity daily --interval month
-python aws/cost_and_usage.py --granularity daily --interval quarter
-python aws/cost_and_usage.py --granularity daily --interval semester
-python aws/cost_and_usage.py --granularity daily --interval year
+Output Format:
+    CSV with columns: PeriodStart, [GroupColumn], [MetricColumn]
+    - PeriodStart: Start date of the period (YYYY-MM-DD)
+    - GroupColumn: Service, Account, or Tag:KeyName based on --group
+    - MetricColumn: Cost metric name (e.g., UnblendedCost)
 
-# 4. Include today
-python aws/cost_and_usage.py --granularity daily --interval week --include-today
+Error Handling:
+    - Exit code 1: Invalid arguments, AWS CLI errors
+    - Exit code 2: File I/O errors
+    - Exit code 4: AWS CLI not configured or missing
 
-# 5. All groupings
-python aws/cost_and_usage.py --granularity daily --group SERVICE
-python aws/cost_and_usage.py --granularity daily --group LINKED_ACCOUNT
-python aws/cost_and_usage.py --granularity daily --group TAG --tag-key Environment
-python aws/cost_and_usage.py --granularity daily --group ALL
+Dependencies:
+    - AWS CLI configured with appropriate permissions
+    - Python 3.8+
 
-# 6. All output formats
-python aws/cost_and_usage.py --granularity daily --output-format csv
-python aws/cost_and_usage.py --granularity daily --output-format json
+Examples:
+    # Basic usage
+    python aws/cost_and_usage.py --granularity daily
+    
+    # With pipe
+    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py
+    
+    # Group by service
+    python aws/cost_and_usage.py --granularity daily --group SERVICE
+    
+    # Custom date range
+    python aws/cost_and_usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
 
-# 7. Group by tag with tag-key
-python aws/cost_and_usage.py --granularity daily --group TAG --tag-key Owner
-
-# 8. Full power: combine all flags
-python aws/cost_and_usage.py --granularity hourly --interval day --include-today --group TAG --tag-key Project --output-format json
-
-# 9. Redirect output to file
-python aws/cost_and_usage.py --granularity monthly --group SERVICE --output-format csv > my-costs.csv
-
-# 10. Help
-python aws/cost_and_usage.py --help
-
-# 11. Error: missing tag-key
-python aws/cost_and_usage.py --granularity daily --group TAG
-
-# 12. Error: --tag-key used without --group TAG
-python aws/cost_and_usage.py --granularity daily --tag-key Owner
-
-# 13. Error: invalid group
-python aws/cost_and_usage.py --granularity daily --group INVALID
-
-# 14. Error: invalid interval
-python aws/cost_and_usage.py --granularity daily --interval nonsense
-
-# 15. Error: invalid output format
-python aws/cost_and_usage.py --granularity daily --output-format nonsense
-
-# 16. Custom metric (only one allowed)
-python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost
-python aws/cost_and_usage.py --granularity daily --metrics BlendedCost
-python aws/cost_and_usage.py --granularity daily --metrics AmortizedCost
-python aws/cost_and_usage.py --granularity daily --metrics NetUnblendedCost
-
-# 17. Error: multiple metrics not allowed
-python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost,BlendedCost
-
-# 18. Custom date range
-python aws/cost_and_usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
-
-# 19. Verbose pagination
-python aws/cost_and_usage.py --granularity daily --group SERVICE --verbose
+Author: Frank Contrepois
+License: MIT
 """
 
+# Standard library imports first
 import argparse
-import subprocess
-import json
-import sys
 import csv
-from datetime import datetime, timedelta, date
-from typing import Optional, Tuple, Dict, Any
+import json
+import os
 import shutil
+import subprocess
+import sys
+from datetime import datetime, timedelta, date
+from typing import Optional, Tuple, Dict, Any, List, TextIO
 
+# Third-party imports second
+import pandas as pd
+
+# Command-specific constants
 VALID_METRICS = [
     "BlendedCost",
     "UnblendedCost",
@@ -126,22 +98,33 @@ METRIC_UNITS = {
     "NormalizedUsageAmount": "NormalizedUnits"
 }
 
-def check_aws_cli_available():
+
+def handle_error(message: str, exit_code: int = 1) -> None:
+    """
+    Print error message and exit with specified code.
+    
+    Args:
+        message: Error message to display
+        exit_code: Exit code to use
+    """
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(exit_code)
+
+def check_aws_cli_available() -> None:
     """Checks if AWS CLI is available in PATH and configured."""
     if shutil.which("aws") is None:
-        print("Error: AWS CLI is not installed or not found in PATH.", file=sys.stderr)
-        sys.exit(1)
+        handle_error("AWS CLI is not installed or not found in PATH.", 4)
+    
     # Check if AWS CLI is configured (basic check)
     try:
         result = subprocess.run(["aws", "sts", "get-caller-identity"], capture_output=True, check=True, text=True)
     except subprocess.CalledProcessError as e:
         if "Unable to locate credentials" in e.stderr:
-            print("Error: AWS CLI is not configured with credentials.", file=sys.stderr)
+            handle_error("AWS CLI is not configured with credentials.", 4)
         else:
-            print(f"Error: AWS CLI configuration issue: {e.stderr}", file=sys.stderr)
-        sys.exit(1)
+            handle_error(f"AWS CLI configuration issue: {e.stderr}", 4)
 
-def run_aws_cli(cmd: list) -> dict:
+def run_aws_cli(cmd: List[str]) -> Dict[str, Any]:
     """Runs the AWS CLI command and returns the parsed JSON output. Exits on error with specific messages."""
     try:
         result = subprocess.run(cmd, capture_output=True, check=True, text=True)
@@ -149,14 +132,13 @@ def run_aws_cli(cmd: list) -> dict:
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         if "Unable to locate credentials" in stderr:
-            print("Error: AWS CLI credentials not found. Please configure your AWS credentials.", file=sys.stderr)
+            handle_error("AWS CLI credentials not found. Please configure your AWS credentials.", 4)
         elif "is not authorized to perform" in stderr:
-            print(f"Error: Permission denied. {stderr}", file=sys.stderr)
+            handle_error(f"Permission denied. {stderr}", 1)
         elif "could not be found" in stderr or "command not found" in stderr:
-            print("Error: AWS CLI command not found. Is AWS CLI installed?", file=sys.stderr)
+            handle_error("AWS CLI command not found. Is AWS CLI installed?", 4)
         else:
-            print(f"Error running AWS CLI: {stderr}", file=sys.stderr)
-        sys.exit(1)
+            handle_error(f"Running AWS CLI: {stderr}", 1)
 
 def format_aws_datetime(dt: datetime) -> str:
     """Formats a datetime object to AWS Cost Explorer's required string format."""
@@ -258,11 +240,21 @@ def fetch_costs(
         page += 1
     return {'ResultsByTime': all_results}
 
+def write_csv_output(df: pd.DataFrame, include_header: bool = True) -> None:
+    """
+    Write DataFrame as CSV to stdout.
+    
+    Args:
+        df: DataFrame to write
+        include_header: Whether to include column headers
+    """
+    df.to_csv(sys.stdout, index=False, header=include_header)
+
 def print_csv_summary(
     results: Dict[str, Any],
     group_key: str,
     metric: str,
-    fileobj=sys.stdout
+    fileobj: TextIO = sys.stdout
 ) -> None:
     """
     Prints a CSV summary grouped by the specified key.
@@ -286,7 +278,7 @@ def print_csv_summary(
 def print_csv_summary_all(
     results: Dict[str, Any],
     metric: str,
-    fileobj=sys.stdout
+    fileobj: TextIO = sys.stdout
 ) -> None:
     """
     Prints a CSV summary of total values for each period.
@@ -308,7 +300,7 @@ def print_csv_summary_all(
 
 def print_json_summary(
     results: Dict[str, Any],
-    fileobj=sys.stdout
+    fileobj: TextIO = sys.stdout
 ) -> None:
     """Prints the results as pretty-printed JSON."""
     json.dump(results, fileobj, indent=2)
@@ -320,12 +312,10 @@ def parse_metric(metric_str: Optional[str]) -> str:
         return "UnblendedCost"
     metrics = [m.strip() for m in metric_str.split(",") if m.strip()]
     if len(metrics) != 1:
-        print("Error: Only one metric can be specified at a time.", file=sys.stderr)
-        sys.exit(1)
+        handle_error("Only one metric can be specified at a time.", 1)
     m = metrics[0]
     if m not in VALID_METRICS:
-        print(f"Error: Invalid metric '{m}'. Valid options: {', '.join(VALID_METRICS)}", file=sys.stderr)
-        sys.exit(1)
+        handle_error(f"Invalid metric '{m}'. Valid options: {', '.join(VALID_METRICS)}", 1)
     return m
 
 def parse_date(date_str: str) -> date:
@@ -333,61 +323,111 @@ def parse_date(date_str: str) -> date:
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
     except Exception:
-        print(f"Error: Invalid date format '{date_str}'. Use YYYY-MM-DD.", file=sys.stderr)
-        sys.exit(1)
+        handle_error(f"Invalid date format '{date_str}'. Use YYYY-MM-DD.", 1)
+
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser for this command."""
+    parser = argparse.ArgumentParser(
+        description="Fetch AWS cost and usage data from Cost Explorer API",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Basic usage
+    python aws/cost_and_usage.py --granularity daily
+    
+    # With pipe
+    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py
+    
+    # Group by service
+    python aws/cost_and_usage.py --granularity daily --group SERVICE
+    
+    # Custom date range
+    python aws/cost_and_usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
+        """
+    )
+    
+    # Required arguments first
+    parser.add_argument(
+        "--granularity", 
+        choices=["hourly", "daily", "monthly"], 
+        required=True,
+        help="Granularity of the data: hourly, daily, or monthly (required)"
+    )
+    
+    # Optional arguments with defaults
+    parser.add_argument(
+        "--interval", 
+        choices=["day", "week", "month", "quarter", "semester", "year"], 
+        default=None,
+        help="Interval to report: day, week, month, quarter, semester, year (optional)"
+    )
+    
+    parser.add_argument(
+        "--group", 
+        choices=["SERVICE", "LINKED_ACCOUNT", "TAG", "ALL"], 
+        default="SERVICE",
+        help="Group costs by SERVICE, LINKED_ACCOUNT, TAG, or ALL (default: SERVICE)"
+    )
+    
+    parser.add_argument(
+        "--output-format", 
+        choices=["csv", "json"], 
+        default="csv",
+        help="Output format: csv or json (default: csv, always prints to standard out)"
+    )
+    
+    parser.add_argument(
+        "--metrics", 
+        type=str, 
+        default="UnblendedCost",
+        help=f"Metric to retrieve (default: UnblendedCost). Valid options: {', '.join(VALID_METRICS)}"
+    )
+    
+    parser.add_argument(
+        "--start", 
+        type=str, 
+        default=None,
+        help="Start date (YYYY-MM-DD). If set with --end, overrides interval logic."
+    )
+    
+    parser.add_argument(
+        "--end", 
+        type=str, 
+        default=None,
+        help="End date (YYYY-MM-DD). If set with --start, overrides interval logic."
+    )
+    
+    parser.add_argument(
+        "--tag-key", 
+        type=str, 
+        default=None,
+        help="Tag key to group by (required if --group TAG)"
+    )
+    
+    # Boolean flags
+    parser.add_argument(
+        "--include-today", 
+        action="store_true",
+        help="If set, include today in the interval"
+    )
+    
+    parser.add_argument(
+        "--verbose", 
+        action="store_true",
+        help="Print debug info (pagination, etc.)"
+    )
+    
+    return parser
 
 def main() -> None:
     """Main entry point for the CLI tool."""
     check_aws_cli_available()  # Pre-check for AWS CLI
-    parser = argparse.ArgumentParser(
-        description="Explore AWS cloud costs by service, account, or tag with flexible granularity and interval."
-    )
-    parser.add_argument(
-        "--granularity", choices=["hourly", "daily", "monthly"], required=True,
-        help="Granularity of the data: hourly, daily, or monthly (required)"
-    )
-    parser.add_argument(
-        "--interval", choices=["day", "week", "month", "quarter", "semester", "year"], default=None,
-        help="Interval to report: day, week, month, quarter, semester, year (optional)"
-    )
-    parser.add_argument(
-        "--include-today", action="store_true",
-        help="If set, include today in the interval"
-    )
-    parser.add_argument(
-        "--group", choices=["SERVICE", "LINKED_ACCOUNT", "TAG", "ALL"], default="SERVICE",
-        help="Group costs by SERVICE, LINKED_ACCOUNT, TAG, or ALL (default: SERVICE)"
-    )
-    parser.add_argument(
-        "--tag-key", type=str, default=None,
-        help="Tag key to group by (required if --group TAG)"
-    )
-    parser.add_argument(
-        "--output-format", choices=["csv", "json"], default="csv",
-        help="Output format: csv or json (default: csv, always prints to standard out)"
-    )
-    parser.add_argument(
-        "--metrics", type=str, default="UnblendedCost",
-        help=f"Metric to retrieve (default: UnblendedCost). Valid options: {', '.join(VALID_METRICS)}"
-    )
-    parser.add_argument(
-        "--start", type=str, default=None,
-        help="Start date (YYYY-MM-DD). If set with --end, overrides interval logic."
-    )
-    parser.add_argument(
-        "--end", type=str, default=None,
-        help="End date (YYYY-MM-DD). If set with --start, overrides interval logic."
-    )
-    parser.add_argument(
-        "--verbose", action="store_true",
-        help="Print debug info (pagination, etc.)"
-    )
+    parser = create_argument_parser()
     args = parser.parse_args()
 
     # Error if --tag-key is used without --group TAG
     if args.tag_key and args.group != "TAG":
-        print("Error: --tag-key can only be used with --group TAG.", file=sys.stderr)
-        sys.exit(1)
+        handle_error("--tag-key can only be used with --group TAG.", 1)
 
     granularity_map = {
         "hourly": "HOURLY",
@@ -404,15 +444,13 @@ def main() -> None:
         try:
             start, end = get_date_range(granularity, args.interval, args.include_today)
         except Exception as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
+            handle_error(str(e), 1)
 
     metric = parse_metric(args.metrics)
 
     if args.group == "TAG":
         if not args.tag_key:
-            print("Error: --tag-key is required when grouping by TAG.", file=sys.stderr)
-            sys.exit(1)
+            handle_error("--tag-key is required when grouping by TAG.", 1)
         group_by = {"Type": "TAG", "Key": args.tag_key}
         group_key = f"Tag:{args.tag_key}"
         results = fetch_costs(start, end, group_by, granularity, metric, args.verbose)
@@ -421,8 +459,7 @@ def main() -> None:
         elif args.output_format == "json":
             print_json_summary(results)
         else:
-            print("Invalid output format.", file=sys.stderr)
-            sys.exit(1)
+            handle_error("Invalid output format.", 1)
     elif args.group == "SERVICE":
         group_by = {"Type": "DIMENSION", "Key": "SERVICE"}
         group_key = "Service"
@@ -432,8 +469,7 @@ def main() -> None:
         elif args.output_format == "json":
             print_json_summary(results)
         else:
-            print("Invalid output format.", file=sys.stderr)
-            sys.exit(1)
+            handle_error("Invalid output format.", 1)
     elif args.group == "LINKED_ACCOUNT":
         group_by = {"Type": "DIMENSION", "Key": "LINKED_ACCOUNT"}
         group_key = "Account"
@@ -443,8 +479,7 @@ def main() -> None:
         elif args.output_format == "json":
             print_json_summary(results)
         else:
-            print("Invalid output format.", file=sys.stderr)
-            sys.exit(1)
+            handle_error("Invalid output format.", 1)
     elif args.group == "ALL":
         results = fetch_costs(start, end, None, granularity, metric, args.verbose)
         if args.output_format == "csv":
@@ -452,8 +487,7 @@ def main() -> None:
         elif args.output_format == "json":
             print_json_summary(results)
         else:
-            print("Invalid output format.", file=sys.stderr)
-            sys.exit(1)
+            handle_error("Invalid output format.", 1)
     else:
         print("Invalid group type.", file=sys.stderr)
         sys.exit(1)
