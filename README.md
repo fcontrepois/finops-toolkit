@@ -23,6 +23,7 @@ A growing collection of Python scripts that use the AWS CLI to pull cost and usa
   - All external libraries are optional; missing dependencies gracefully return NaN with warnings
 - **Milestone summary:** Use `--milestone-summary` to print a summary table of forecasted values at key milestones (end of month, next month, next quarter, following quarter, year).
 - **Anomaly detection:** Automatically flag suspicious jumps in your forecasted costs.
+- **Budget Analysis:** Compare actual costs against AWS budgets with variance analysis and threshold alerts.
 - **Output formats:** CSV, always delivered to standard out, so you can redirect, pipe, or graph in Excel.
 - **Extensible:** New scripts will be added over time.
 - **No nonsense:** No web dashboards, no vendor lock-in, and absolutely no blockchain.
@@ -32,7 +33,7 @@ A growing collection of Python scripts that use the AWS CLI to pull cost and usa
 ### 1. Install Requirements
 
 - Python 3.7+
-- AWS CLI configured with permissions for Cost Explorer
+- AWS CLI configured with permissions for Cost Explorer and Budgets
 - **Core dependencies:** pandas, numpy (required for basic forecasting)
 - **Optional dependencies for advanced forecasting:**
   - `prophet` - Facebook Prophet for advanced time series forecasting
@@ -137,6 +138,24 @@ bash aws/anomaly_detection_forecast.sh --threshold 10 --group TAG --tag-key Owne
 bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric BlendedCost --group ALL --method prophet
 ```
 
+### 5. Analyze Budget Performance
+
+Compare your actual costs against AWS budgets and get variance analysis:
+
+```bash
+# Basic budget analysis
+python aws/budget_analysis.py --budget-name "Monthly-Production-Budget"
+
+# With pipe from cost_and_usage
+python aws/cost_and_usage.py --granularity daily | python aws/budget_analysis.py --budget-name "Q1-Budget"
+
+# With threshold alerts
+python aws/budget_analysis.py --budget-name "Monthly-Budget" --threshold 80 --alert-on-breach
+
+# Analyze all budgets
+python aws/budget_analysis.py --all-budgets --threshold 90
+```
+
 ## Arguments and Examples
 
 ### cost_and_usage.py
@@ -212,24 +231,58 @@ python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value
   --neural-prophet --darts-algorithm xgboost --ensemble --milestone-summary
 ```
 
+### budget_analysis.py
+
+**Core Arguments:**
+- `--budget-name` Name of the specific budget to analyze (mutually exclusive with --all-budgets).
+- `--all-budgets` Analyze all budgets in the account (mutually exclusive with --budget-name).
+- `--input` Input CSV file (if not provided, reads from stdin).
+
+**Analysis Parameters:**
+- `--threshold` Threshold percentage for budget alerts (default: 80.0).
+- `--alert-on-breach` Print alerts to stderr when budget thresholds are breached.
+
+**Output Format:**
+- `--output-format` Output format: csv or json (default: csv).
+
+**Examples:**
+
+```bash
+# Basic budget analysis
+python aws/budget_analysis.py --budget-name "Monthly-Production-Budget"
+
+# With pipe from cost_and_usage
+python aws/cost_and_usage.py --granularity daily | python aws/budget_analysis.py --budget-name "Q1-Budget"
+
+# With threshold alerts
+python aws/budget_analysis.py --budget-name "Monthly-Budget" --threshold 80 --alert-on-breach
+
+# Analyze all budgets
+python aws/budget_analysis.py --all-budgets --threshold 90
+
+# JSON output
+python aws/budget_analysis.py --budget-name "Test-Budget" --output-format json
+```
+
 ## Testing
 
-- Comprehensive test suite with 53 tests covering all forecasting algorithms and edge cases.
+- Comprehensive test suite with 94 tests covering all commands and edge cases.
 - Integration and edge-case tests use CSV files in `tests/input/`.
 - Tests validate graceful degradation when external libraries are missing.
 - To run the tests:
 
 ```bash
-# Run all forecast tests
+# Run all tests
+PYTHONPATH=. pytest -v tests/
+
+# Run specific command tests
 PYTHONPATH=. pytest -v tests/test_forecast_costs.py
+PYTHONPATH=. pytest -v tests/test_budget_analysis.py
+PYTHONPATH=. pytest -v tests/test_cost_and_usage.py
 
 # Run specific test classes
 PYTHONPATH=. pytest -v tests/test_forecast_costs.py::TestHoltWintersForecast
-PYTHONPATH=. pytest -v tests/test_forecast_costs.py::TestArimaForecast
-PYTHONPATH=. pytest -v tests/test_forecast_costs.py::TestNeuralProphetForecast
-
-# Run all tests
-PYTHONPATH=. pytest -v tests/
+PYTHONPATH=. pytest -v tests/test_budget_analysis.py::TestProcessBudgetAnalysis
 ```
 
 ## Roadmap
