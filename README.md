@@ -11,7 +11,16 @@ A growing collection of Python scripts that use the AWS CLI to pull cost and usa
 - **Flexible granularity:** Choose between hourly, daily, or monthly data.
 - **Custom intervals:** Report by day, week, month, quarter, semester, or year.
 - **Group by:** Service, linked account, or tag.
-- **Forecasting:** Predict your future AWS costs using three forecasting methods—Simple Moving Average, Exponential Smoothing, and Facebook Prophet. Prophet is optional; if not installed, Prophet forecasts will be NaN and a warning will be shown.
+- **Advanced Forecasting:** Predict your future AWS costs using multiple forecasting methods:
+  - **Simple Moving Average (SMA):** Basic trend analysis with configurable window size
+  - **Exponential Smoothing (ES):** Weighted average with configurable smoothing factor
+  - **Holt-Winters Triple Exponential Smoothing:** Handles trend and seasonality with configurable parameters
+  - **ARIMA/SARIMA:** AutoRegressive Integrated Moving Average models for complex time series
+  - **Theta Method:** Linear trend combined with exponential smoothing
+  - **NeuralProphet:** Neural network-based Prophet for advanced pattern recognition
+  - **Darts Integration:** Multiple algorithms including Linear Regression, Random Forest, and XGBoost
+  - **Ensemble Forecasting:** Combines multiple methods for improved accuracy
+  - All external libraries are optional; missing dependencies gracefully return NaN with warnings
 - **Milestone summary:** Use `--milestone-summary` to print a summary table of forecasted values at key milestones (end of month, next month, next quarter, following quarter, year).
 - **Anomaly detection:** Automatically flag suspicious jumps in your forecasted costs.
 - **Output formats:** CSV, always delivered to standard out, so you can redirect, pipe, or graph in Excel.
@@ -24,9 +33,15 @@ A growing collection of Python scripts that use the AWS CLI to pull cost and usa
 
 - Python 3.7+
 - AWS CLI configured with permissions for Cost Explorer
-- Prophet (for forecasting; install with `pip install prophet` or use conda)
-- pandas, numpy (for forecasting)
+- **Core dependencies:** pandas, numpy (required for basic forecasting)
+- **Optional dependencies for advanced forecasting:**
+  - `prophet` - Facebook Prophet for advanced time series forecasting
+  - `neuralprophet` - Neural network-based Prophet
+  - `statsmodels` - For ARIMA/SARIMA models
+  - `darts` - For multiple forecasting algorithms (Linear Regression, Random Forest, XGBoost)
 - Your favourite terminal
+
+**Note:** All external forecasting libraries are optional. The toolkit will gracefully handle missing dependencies by returning NaN values for those specific algorithms while continuing to work with available methods.
 
 ### 2. Explore Your Costs
 
@@ -49,10 +64,29 @@ python aws/cost_and_usage.py --granularity monthly --group LINKED_ACCOUNT > cost
 ### 3. Forecast Future Costs
 
 - Input must have at least 10 valid (non-NaN) rows after cleaning, or the script will warn and exit.
-- Output is always CSV, suitable for graphing in Excel.
+- Output is always CSV with multiple forecast columns, suitable for graphing in Excel.
+- All forecasting algorithms run in parallel, with graceful degradation for missing dependencies.
+
+#### Basic Forecasting
 
 ```bash
 python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+```
+
+#### Advanced Forecasting with Custom Parameters
+
+```bash
+# Holt-Winters with custom parameters
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+  --hw-alpha 0.3 --hw-beta 0.1 --hw-gamma 0.2 --hw-seasonal-periods 12
+
+# ARIMA with custom order
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+  --arima-order "2,1,2"
+
+# Include NeuralProphet and Darts algorithms
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+  --neural-prophet --darts-algorithm xgboost --ensemble
 ```
 
 #### Milestone Summary Example
@@ -68,6 +102,22 @@ python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value
 ```bash
 python aws/cost_and_usage.py --granularity daily --output-format csv | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost --milestone-summary
 ```
+
+#### Output Format
+
+The forecasting script outputs CSV with multiple columns:
+- **Original data columns:** Your input date and value columns
+- **Forecast columns:** One column for each forecasting algorithm:
+  - `sma` - Simple Moving Average
+  - `es` - Exponential Smoothing  
+  - `hw` - Holt-Winters Triple Exponential Smoothing
+  - `arima` - ARIMA forecast
+  - `sarima` - SARIMA forecast
+  - `theta` - Theta Method
+  - `neural_prophet` - NeuralProphet (if available)
+  - `darts` - Darts algorithm (if specified)
+  - `ensemble` - Ensemble average (if enabled)
+- **NaN values:** Missing dependencies gracefully return NaN for unavailable algorithms
 
 ### 4. Detect Anomalies in Forecasts
 
@@ -113,28 +163,73 @@ python aws/cost_and_usage.py --granularity monthly --group SERVICE --output-form
 
 ### forecast_costs.py
 
+**Core Arguments:**
 - `--input` Input CSV file (or pipe from standard input).
 - `--date-column` and `--value-column` Specify the date and value columns from your cost data.
+- `--milestone-summary` Print a summary table of forecasted values at key milestones.
+
+**Basic Forecasting Parameters:**
 - `--sma-window` Window size for Simple Moving Average (default: 7).
 - `--es-alpha` Smoothing factor for Exponential Smoothing (default: 0.5).
-- Prophet options:  
-  - `--prophet-daily-seasonality`, `--prophet-yearly-seasonality`, `--prophet-weekly-seasonality`
-  - `--prophet-changepoint-prior-scale`, `--prophet-seasonality-prior-scale`
-- `--milestone-summary` Print a summary table of forecasted values at key milestones.
+
+**Holt-Winters Parameters:**
+- `--hw-alpha` Alpha for Holt-Winters level smoothing (default: 0.3).
+- `--hw-beta` Beta for Holt-Winters trend smoothing (default: 0.1).
+- `--hw-gamma` Gamma for Holt-Winters seasonal smoothing (default: 0.2).
+- `--hw-seasonal-periods` Seasonal periods for Holt-Winters (default: 12).
+
+**ARIMA/SARIMA Parameters:**
+- `--arima-order` ARIMA order as comma-separated values (p,d,q) (default: 1,1,1).
+- `--sarima-order` SARIMA order as comma-separated values (p,d,q) (default: 1,1,1).
+- `--sarima-seasonal-order` SARIMA seasonal order as comma-separated values (P,D,Q,s) (default: 1,1,1,12).
+
+**Advanced Algorithms:**
+- `--theta-method` Theta method parameter (default: 2).
+- `--neural-prophet` Include NeuralProphet forecast (requires neuralprophet package).
+- `--darts-algorithm` Include Darts forecast with specified algorithm (exponential_smoothing, arima, auto_arima, theta, linear_regression, random_forest, xgboost).
+- `--ensemble` Include ensemble forecast (average of all available forecasts).
+
+**Prophet Options (Legacy):**
+- `--prophet-daily-seasonality`, `--prophet-yearly-seasonality`, `--prophet-weekly-seasonality`
+- `--prophet-changepoint-prior-scale`, `--prophet-seasonality-prior-scale`
 
 **Examples:**
 
 ```bash
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+# Basic forecasting with all algorithms
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+
+# Custom Holt-Winters parameters
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+  --hw-alpha 0.4 --hw-beta 0.2 --hw-gamma 0.3 --hw-seasonal-periods 24
+
+# ARIMA with custom order
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+  --arima-order "2,1,2"
+
+# Include advanced algorithms
+python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+  --neural-prophet --darts-algorithm xgboost --ensemble --milestone-summary
 ```
 
 ## Testing
 
+- Comprehensive test suite with 53 tests covering all forecasting algorithms and edge cases.
 - Integration and edge-case tests use CSV files in `tests/input/`.
+- Tests validate graceful degradation when external libraries are missing.
 - To run the tests:
 
 ```bash
+# Run all forecast tests
 PYTHONPATH=. pytest -v tests/test_forecast_costs.py
+
+# Run specific test classes
+PYTHONPATH=. pytest -v tests/test_forecast_costs.py::TestHoltWintersForecast
+PYTHONPATH=. pytest -v tests/test_forecast_costs.py::TestArimaForecast
+PYTHONPATH=. pytest -v tests/test_forecast_costs.py::TestNeuralProphetForecast
+
+# Run all tests
+PYTHONPATH=. pytest -v tests/
 ```
 
 ## Roadmap
@@ -143,9 +238,15 @@ This toolkit is just getting started. Over time, expect a growing suite of scrip
 
 ## Troubleshooting
 
-- If you see errors about AWS CLI, check your credentials, permissions, and whether you have angered the cloud gods.
-- If Prophet complains, try installing it with conda, and make sure `pystan` is installed too.
-- If you see only zeros, it’s either a good day, or you’ve filtered yourself into oblivion.
+- **AWS CLI errors:** Check your credentials, permissions, and whether you have angered the cloud gods.
+- **Missing forecasting libraries:** The toolkit gracefully handles missing dependencies. If you see NaN values for specific algorithms, install the required packages:
+  - `pip install prophet` for Facebook Prophet
+  - `pip install neuralprophet` for NeuralProphet
+  - `pip install statsmodels` for ARIMA/SARIMA
+  - `pip install darts` for Darts algorithms
+- **Prophet installation issues:** Try installing with conda, and make sure `pystan` is installed too.
+- **Only zeros in output:** It's either a good day, or you've filtered yourself into oblivion.
+- **Test failures:** Ensure all dependencies are installed and run tests with `PYTHONPATH=. pytest -v tests/`
 - For any other issues, raise an issue, consult your nearest rubber duck, or take a brisk walk.
 
 ## License
