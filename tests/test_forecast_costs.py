@@ -56,6 +56,13 @@ from aws.forecast_costs import (
     simple_moving_average_forecast,
     exponential_smoothing_forecast,
     holt_winters_forecast,
+    arima_forecast,
+    sarima_forecast,
+    theta_forecast,
+    neural_prophet_forecast,
+    darts_forecast,
+    ensemble_forecast,
+    parse_order_parameter,
     prophet_forecast,
     MIN_DATA_POINTS,
     DEFAULT_SMA_WINDOW,
@@ -63,7 +70,11 @@ from aws.forecast_costs import (
     DEFAULT_HW_ALPHA,
     DEFAULT_HW_BETA,
     DEFAULT_HW_GAMMA,
-    DEFAULT_HW_SEASONAL_PERIODS
+    DEFAULT_HW_SEASONAL_PERIODS,
+    DEFAULT_ARIMA_ORDER,
+    DEFAULT_SARIMA_ORDER,
+    DEFAULT_SARIMA_SEASONAL_ORDER,
+    DEFAULT_THETA_METHOD
 )
 
 
@@ -122,6 +133,13 @@ class TestCreateArgumentParser:
         assert args.hw_beta == DEFAULT_HW_BETA
         assert args.hw_gamma == DEFAULT_HW_GAMMA
         assert args.hw_seasonal_periods == DEFAULT_HW_SEASONAL_PERIODS
+        assert args.arima_order == '1,1,1'
+        assert args.sarima_order == '1,1,1'
+        assert args.sarima_seasonal_order == '1,1,1,12'
+        assert args.theta_method == DEFAULT_THETA_METHOD
+        assert args.neural_prophet is False
+        assert args.ensemble is False
+        assert args.darts_algorithm is None
         assert args.prophet_daily_seasonality is True
         assert args.prophet_yearly_seasonality is True
         assert args.prophet_weekly_seasonality is False
@@ -369,6 +387,269 @@ class TestHoltWintersForecast:
         assert isinstance(result[0], float)
 
 
+class TestArimaForecast:
+    """Test the arima_forecast function."""
+    
+    def test_arima_forecast_with_statsmodels(self):
+        """Test arima_forecast with statsmodels available."""
+        import pandas as pd
+        import numpy as np
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]})
+        forecast_dates = [pd.Timestamp('2024-01-11')]
+        
+        # Mock the import at the module level
+        with patch('aws.forecast_costs.ARIMA') as mock_arima:
+            mock_model = MagicMock()
+            mock_fitted = MagicMock()
+            mock_fitted.forecast.return_value = np.array([110.0])
+            mock_arima.return_value = mock_model
+            mock_model.fit.return_value = mock_fitted
+            
+            result = arima_forecast(df, 'value', forecast_dates, (1, 1, 1))
+            
+            assert len(result) == 1
+            assert result[0] == 110.0
+    
+    def test_arima_forecast_without_statsmodels(self):
+        """Test arima_forecast without statsmodels available."""
+        import pandas as pd
+        import numpy as np
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50]})
+        forecast_dates = [pd.Timestamp('2024-01-06')]
+        
+        # Mock ImportError by patching the import
+        with patch('aws.forecast_costs.ARIMA', side_effect=ImportError):
+            result = arima_forecast(df, 'value', forecast_dates, (1, 1, 1))
+            
+            assert len(result) == 1
+            assert np.isnan(result[0])
+
+
+class TestSarimaForecast:
+    """Test the sarima_forecast function."""
+    
+    def test_sarima_forecast_with_statsmodels(self):
+        """Test sarima_forecast with statsmodels available."""
+        import pandas as pd
+        import numpy as np
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]})
+        forecast_dates = [pd.Timestamp('2024-01-11')]
+        
+        # Mock the import at the module level
+        with patch('aws.forecast_costs.SARIMAX') as mock_sarima:
+            mock_model = MagicMock()
+            mock_fitted = MagicMock()
+            mock_fitted.forecast.return_value = np.array([110.0])
+            mock_sarima.return_value = mock_model
+            mock_model.fit.return_value = mock_fitted
+            
+            result = sarima_forecast(df, 'value', forecast_dates, (1, 1, 1), (1, 1, 1, 12))
+            
+            assert len(result) == 1
+            assert result[0] == 110.0
+    
+    def test_sarima_forecast_without_statsmodels(self):
+        """Test sarima_forecast without statsmodels available."""
+        import pandas as pd
+        import numpy as np
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50]})
+        forecast_dates = [pd.Timestamp('2024-01-06')]
+        
+        # Mock ImportError by patching the import
+        with patch('aws.forecast_costs.SARIMAX', side_effect=ImportError):
+            result = sarima_forecast(df, 'value', forecast_dates, (1, 1, 1), (1, 1, 1, 12))
+            
+            assert len(result) == 1
+            assert np.isnan(result[0])
+
+
+class TestThetaForecast:
+    """Test the theta_forecast function."""
+    
+    def test_theta_forecast_basic(self):
+        """Test theta_forecast with basic data."""
+        import pandas as pd
+        import numpy as np
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50]})
+        forecast_dates = [pd.Timestamp('2024-01-06')]
+        
+        result = theta_forecast(df, 'value', forecast_dates, 2.0)
+        
+        assert len(result) == 1
+        assert isinstance(result[0], float)
+        assert not np.isnan(result[0])
+    
+    def test_theta_forecast_insufficient_data(self):
+        """Test theta_forecast with insufficient data."""
+        import pandas as pd
+        
+        df = pd.DataFrame({'value': [10]})
+        forecast_dates = [pd.Timestamp('2024-01-02')]
+        
+        result = theta_forecast(df, 'value', forecast_dates, 2.0)
+        
+        assert len(result) == 1
+        assert result[0] == 10.0
+
+
+class TestNeuralProphetForecast:
+    """Test the neural_prophet_forecast function."""
+    
+    def test_neural_prophet_forecast_with_neuralprophet(self):
+        """Test neural_prophet_forecast with neuralprophet available."""
+        import pandas as pd
+        import numpy as np
+        
+        df = pd.DataFrame({
+            'date': pd.date_range('2024-01-01', periods=10),
+            'value': [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        })
+        forecast_dates = [pd.Timestamp('2024-01-11')]
+        
+        # Mock the import at the module level
+        with patch('aws.forecast_costs.NeuralProphet') as mock_np:
+            mock_model = MagicMock()
+            mock_model.fit.return_value = None
+            mock_model.predict.return_value = pd.DataFrame({'yhat': [110.0]})
+            mock_np.return_value = mock_model
+            
+            args = MagicMock()
+            args.prophet_daily_seasonality = True
+            args.prophet_yearly_seasonality = True
+            args.prophet_weekly_seasonality = False
+            args.prophet_changepoint_prior_scale = 0.05
+            args.prophet_seasonality_prior_scale = 10.0
+            
+            result = neural_prophet_forecast(df, 'date', 'value', forecast_dates, args)
+            
+            assert len(result) == 1
+            assert result[0] == 110.0
+    
+    def test_neural_prophet_forecast_without_neuralprophet(self):
+        """Test neural_prophet_forecast without neuralprophet available."""
+        import pandas as pd
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50]})
+        forecast_dates = [pd.Timestamp('2024-01-06')]
+        
+        # Mock ImportError by patching the import
+        with patch('aws.forecast_costs.NeuralProphet', side_effect=ImportError):
+            result = neural_prophet_forecast(df, 'date', 'value', forecast_dates, MagicMock())
+            
+            assert len(result) == 1
+            assert np.isnan(result[0])
+
+
+class TestDartsForecast:
+    """Test the darts_forecast function."""
+    
+    def test_darts_forecast_with_darts(self):
+        """Test darts_forecast with darts available."""
+        import pandas as pd
+        import numpy as np
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]})
+        forecast_dates = [pd.Timestamp('2024-01-11')]
+        
+        # Mock the imports at the module level
+        with patch('aws.forecast_costs.TimeSeries') as mock_ts:
+            mock_ts.from_values.return_value = MagicMock()
+            
+            with patch('aws.forecast_costs.ExponentialSmoothing') as mock_model:
+                mock_model_instance = MagicMock()
+                mock_model_instance.fit.return_value = None
+                mock_model_instance.predict.return_value = MagicMock()
+                mock_model_instance.predict.return_value.values.return_value = np.array([[110.0]])
+                mock_model.return_value = mock_model_instance
+                
+                result = darts_forecast(df, 'value', forecast_dates, 'exponential_smoothing')
+                
+                assert len(result) == 1
+                assert result[0] == 110.0
+    
+    def test_darts_forecast_without_darts(self):
+        """Test darts_forecast without darts available."""
+        import pandas as pd
+        
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50]})
+        forecast_dates = [pd.Timestamp('2024-01-06')]
+        
+        # Mock ImportError by patching the import
+        with patch('aws.forecast_costs.TimeSeries', side_effect=ImportError):
+            result = darts_forecast(df, 'value', forecast_dates, 'exponential_smoothing')
+            
+            assert len(result) == 1
+            assert np.isnan(result[0])
+
+
+class TestEnsembleForecast:
+    """Test the ensemble_forecast function."""
+    
+    def test_ensemble_forecast_basic(self):
+        """Test ensemble_forecast with basic data."""
+        forecasts = {
+            'sma': [100.0, 110.0],
+            'es': [105.0, 115.0],
+            'hw': [95.0, 105.0]
+        }
+        
+        result = ensemble_forecast(forecasts)
+        
+        assert len(result) == 2
+        assert result[0] == 100.0  # (100 + 105 + 95) / 3
+        assert result[1] == 110.0  # (110 + 115 + 105) / 3
+    
+    def test_ensemble_forecast_with_nan(self):
+        """Test ensemble_forecast with NaN values."""
+        import numpy as np
+        
+        forecasts = {
+            'sma': [100.0, 110.0],
+            'es': [np.nan, 115.0],
+            'hw': [95.0, np.nan]
+        }
+        
+        result = ensemble_forecast(forecasts)
+        
+        assert len(result) == 2
+        assert result[0] == 97.5  # (100 + 95) / 2
+        assert result[1] == 112.5  # (110 + 115) / 2
+    
+    def test_ensemble_forecast_empty(self):
+        """Test ensemble_forecast with empty input."""
+        result = ensemble_forecast({})
+        
+        assert result == []
+
+
+class TestParseOrderParameter:
+    """Test the parse_order_parameter function."""
+    
+    def test_parse_order_parameter_valid(self):
+        """Test parse_order_parameter with valid input."""
+        result = parse_order_parameter("1,2,3", 3)
+        assert result == (1, 2, 3)
+    
+    def test_parse_order_parameter_invalid_length(self):
+        """Test parse_order_parameter with invalid length."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_order_parameter("1,2", 3)
+        
+        assert exc_info.value.code == 1
+    
+    def test_parse_order_parameter_invalid_format(self):
+        """Test parse_order_parameter with invalid format."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_order_parameter("1,a,3", 3)
+        
+        assert exc_info.value.code == 1
+
+
 class TestCommandLineInterface:
     """Test the command-line interface."""
     
@@ -385,6 +666,13 @@ class TestCommandLineInterface:
         assert "--hw-beta" in result.stdout
         assert "--hw-gamma" in result.stdout
         assert "--hw-seasonal-periods" in result.stdout
+        assert "--arima-order" in result.stdout
+        assert "--sarima-order" in result.stdout
+        assert "--sarima-seasonal-order" in result.stdout
+        assert "--theta-method" in result.stdout
+        assert "--neural-prophet" in result.stdout
+        assert "--ensemble" in result.stdout
+        assert "--darts-algorithm" in result.stdout
         assert "Examples:" in result.stdout
     
     def test_missing_required_argument(self):
@@ -399,7 +687,7 @@ class TestCommandLineInterface:
 
 class TestIntegrationTests:
     """Test integration with real data files."""
-    
+
     def test_integration_daily_csv(self):
         """Test integration with daily CSV data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'daily_costs_simple.csv')
@@ -416,7 +704,10 @@ class TestIntegrationTests:
         assert 'end_of_this_month' in result.stdout
         assert 'sma:' in result.stdout
         assert 'hw:' in result.stdout
-    
+        assert 'arima:' in result.stdout
+        assert 'sarima:' in result.stdout
+        assert 'theta:' in result.stdout
+
     def test_integration_monthly_csv(self):
         """Test integration with monthly CSV data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'monthly_costs_simple.csv')
@@ -433,6 +724,9 @@ class TestIntegrationTests:
         assert 'end_of_this_month' in result.stdout
         assert 'sma:' in result.stdout
         assert 'hw:' in result.stdout
+        assert 'arima:' in result.stdout
+        assert 'sarima:' in result.stdout
+        assert 'theta:' in result.stdout
     
     def test_integration_holt_winters_parameters(self):
         """Test integration with custom Holt-Winters parameters."""
@@ -454,6 +748,31 @@ class TestIntegrationTests:
         assert 'sma:' in result.stdout
         assert 'hw:' in result.stdout
     
+    def test_integration_new_algorithms(self):
+        """Test integration with new forecasting algorithms."""
+        test_csv = os.path.join(os.path.dirname(__file__), 'input', 'daily_costs_simple.csv')
+        result = subprocess.run([
+            sys.executable, 'aws/forecast_costs.py',
+            '--input', test_csv,
+            '--date-column', 'PeriodStart',
+            '--value-column', 'UnblendedCost',
+            '--arima-order', '2,1,1',
+            '--sarima-order', '1,1,2',
+            '--sarima-seasonal-order', '1,1,1,6',
+            '--theta-method', '3',
+            '--ensemble',
+            '--milestone-summary'
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        assert result.returncode == 0
+        assert '# Forecast Milestone Summary' in result.stdout
+        assert 'sma:' in result.stdout
+        assert 'hw:' in result.stdout
+        assert 'arima:' in result.stdout
+        assert 'sarima:' in result.stdout
+        assert 'theta:' in result.stdout
+        assert 'ensemble:' in result.stdout
+
     def test_integration_missing_values(self):
         """Test integration with data containing missing values."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_with_missing.csv')
@@ -468,7 +787,7 @@ class TestIntegrationTests:
         assert result.returncode == 0
         assert '# Forecast Milestone Summary' in result.stdout
         assert 'sma:' in result.stdout
-    
+
     def test_integration_short_input(self):
         """Test integration with short input data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_short.csv')
@@ -483,7 +802,7 @@ class TestIntegrationTests:
         assert result.returncode == 0
         assert '# Forecast Milestone Summary' in result.stdout
         assert 'sma:' in result.stdout
-    
+
     def test_integration_nonmonotonic_dates(self):
         """Test integration with non-monotonic date data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_nonmonotonic.csv')

@@ -37,13 +37,19 @@ Input Format:
     - Input must have at least 10 valid (non-NaN) rows after cleaning
 
 Output Format:
-    CSV with columns: [date_column], [value_column], sma, es, hw, prophet
+    CSV with columns: [date_column], [value_column], sma, es, hw, arima, sarima, theta, prophet, neural_prophet, darts, ensemble
     - [date_column]: The date of the forecast
     - [value_column]: The actual value (if available, else NaN)
     - sma: Forecasted value using Simple Moving Average
     - es: Forecasted value using Exponential Smoothing
     - hw: Forecasted value using Holt-Winters Triple Exponential Smoothing
+    - arima: Forecasted value using ARIMA (if statsmodels installed)
+    - sarima: Forecasted value using SARIMA (if statsmodels installed)
+    - theta: Forecasted value using Theta Method
     - prophet: Forecasted value using Prophet (if installed)
+    - neural_prophet: Forecasted value using NeuralProphet (if --neural-prophet flag used and neuralprophet installed)
+    - darts: Forecasted value using Darts algorithm (if --darts-algorithm specified and darts installed)
+    - ensemble: Ensemble forecast (average of all available forecasts, if --ensemble flag used)
 
 Error Handling:
     - Exit code 1: Invalid arguments, data processing errors
@@ -93,6 +99,10 @@ DEFAULT_HW_ALPHA = 0.3
 DEFAULT_HW_BETA = 0.1
 DEFAULT_HW_GAMMA = 0.1
 DEFAULT_HW_SEASONAL_PERIODS = 12
+DEFAULT_ARIMA_ORDER = (1, 1, 1)
+DEFAULT_SARIMA_ORDER = (1, 1, 1)
+DEFAULT_SARIMA_SEASONAL_ORDER = (1, 1, 1, 12)
+DEFAULT_THETA_METHOD = 2
 DEFAULT_PROPHET_CHANGEPOINT_PRIOR_SCALE = 0.05
 DEFAULT_PROPHET_SEASONALITY_PRIOR_SCALE = 10.0
 
@@ -180,6 +190,46 @@ Examples:
         type=int, 
         default=DEFAULT_HW_SEASONAL_PERIODS, 
         help=f'Seasonal periods for Holt-Winters (default: {DEFAULT_HW_SEASONAL_PERIODS})'
+    )
+    parser.add_argument(
+        '--arima-order', 
+        type=str, 
+        default='1,1,1', 
+        help='ARIMA order as comma-separated values (p,d,q) (default: 1,1,1)'
+    )
+    parser.add_argument(
+        '--sarima-order', 
+        type=str, 
+        default='1,1,1', 
+        help='SARIMA order as comma-separated values (p,d,q) (default: 1,1,1)'
+    )
+    parser.add_argument(
+        '--sarima-seasonal-order', 
+        type=str, 
+        default='1,1,1,12', 
+        help='SARIMA seasonal order as comma-separated values (P,D,Q,s) (default: 1,1,1,12)'
+    )
+    parser.add_argument(
+        '--theta-method', 
+        type=int, 
+        default=DEFAULT_THETA_METHOD, 
+        help=f'Theta method parameter (default: {DEFAULT_THETA_METHOD})'
+    )
+    parser.add_argument(
+        '--neural-prophet', 
+        action='store_true', 
+        help='Include NeuralProphet forecast (requires neuralprophet package)'
+    )
+    parser.add_argument(
+        '--ensemble', 
+        action='store_true', 
+        help='Include ensemble forecast (average of all available forecasts)'
+    )
+    parser.add_argument(
+        '--darts-algorithm', 
+        type=str, 
+        choices=['exponential_smoothing', 'arima', 'auto_arima', 'theta', 'linear_regression', 'random_forest', 'xgboost'],
+        help='Include Darts forecast with specified algorithm (requires darts package)'
     )
     parser.add_argument(
         '--prophet-daily-seasonality', 
@@ -487,6 +537,135 @@ def holt_winters_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List
     
     return forecasts
 
+def arima_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Timestamp], order: Tuple[int, int, int]) -> List[float]:
+    """
+    Generate ARIMA forecast.
+    
+    Args:
+        df: Input DataFrame
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        order: ARIMA order (p, d, q)
+        
+    Returns:
+        List of forecasted values (or NaN if statsmodels not available)
+    """
+    try:
+        from statsmodels.tsa.arima.model import ARIMA
+    except ImportError:
+        warnings.warn("statsmodels is not installed. ARIMA forecast will be NaN.")
+        return [np.nan] * len(forecast_dates)
+    
+    values = df[value_col].values
+    
+    try:
+        model = ARIMA(values, order=order)
+        fitted_model = model.fit()
+        forecast = fitted_model.forecast(steps=len(forecast_dates))
+        return forecast.tolist()
+    except Exception as e:
+        warnings.warn(f"ARIMA forecast failed: {e}. Returning NaN.")
+        return [np.nan] * len(forecast_dates)
+
+def sarima_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Timestamp], 
+                   order: Tuple[int, int, int], seasonal_order: Tuple[int, int, int, int]) -> List[float]:
+    """
+    Generate SARIMA forecast.
+    
+    Args:
+        df: Input DataFrame
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        order: SARIMA order (p, d, q)
+        seasonal_order: SARIMA seasonal order (P, D, Q, s)
+        
+    Returns:
+        List of forecasted values (or NaN if statsmodels not available)
+    """
+    try:
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+    except ImportError:
+        warnings.warn("statsmodels is not installed. SARIMA forecast will be NaN.")
+        return [np.nan] * len(forecast_dates)
+    
+    values = df[value_col].values
+    
+    try:
+        model = SARIMAX(values, order=order, seasonal_order=seasonal_order)
+        fitted_model = model.fit(disp=False)
+        forecast = fitted_model.forecast(steps=len(forecast_dates))
+        return forecast.tolist()
+    except Exception as e:
+        warnings.warn(f"SARIMA forecast failed: {e}. Returning NaN.")
+        return [np.nan] * len(forecast_dates)
+
+def theta_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Timestamp], theta: float) -> List[float]:
+    """
+    Generate Theta method forecast.
+    
+    Args:
+        df: Input DataFrame
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        theta: Theta parameter
+        
+    Returns:
+        List of forecasted values
+    """
+    values = df[value_col].values
+    n = len(values)
+    
+    if n < 2:
+        return [values[-1]] * len(forecast_dates)
+    
+    # Calculate linear trend
+    x = np.arange(n)
+    coeffs = np.polyfit(x, values, 1)
+    trend = coeffs[0] * x + coeffs[1]
+    
+    # Calculate detrended series
+    detrended = values - trend
+    
+    # Apply theta transformation
+    theta_series = theta * detrended + (1 - theta) * values
+    
+    # Forecast using linear extrapolation
+    forecasts = []
+    for h in range(1, len(forecast_dates) + 1):
+        # Linear trend forecast
+        trend_forecast = coeffs[0] * (n + h - 1) + coeffs[1]
+        
+        # Theta forecast
+        theta_forecast = theta * detrended[-1] + (1 - theta) * values[-1]
+        
+        # Combine trend and theta components
+        forecast = trend_forecast + (theta_forecast - trend[-1])
+        forecasts.append(forecast)
+    
+    return forecasts
+
+def parse_order_parameter(order_str: str, expected_length: int) -> Tuple[int, ...]:
+    """
+    Parse order parameter string into tuple.
+    
+    Args:
+        order_str: Comma-separated string of integers
+        expected_length: Expected number of parameters
+        
+    Returns:
+        Tuple of integers
+        
+    Raises:
+        SystemExit: If parsing fails
+    """
+    try:
+        parts = [int(x.strip()) for x in order_str.split(',')]
+        if len(parts) != expected_length:
+            handle_error(f"Order parameter must have {expected_length} comma-separated values", 1)
+        return tuple(parts)
+    except ValueError:
+        handle_error(f"Invalid order parameter format: {order_str}", 1)
+
 def prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, forecast_dates: List[pd.Timestamp], args) -> List[float]:
     """
     Generate Prophet forecast.
@@ -525,6 +704,132 @@ def prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, forecast_d
     forecast = model.predict(future)
     return forecast['yhat'].values
 
+def neural_prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, forecast_dates: List[pd.Timestamp], args) -> List[float]:
+    """
+    Generate NeuralProphet forecast.
+    
+    Args:
+        df: Input DataFrame
+        date_col: Name of the date column
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        args: Command line arguments
+        
+    Returns:
+        List of forecasted values (or NaN if NeuralProphet not available)
+    """
+    try:
+        from neuralprophet import NeuralProphet
+    except ImportError:
+        warnings.warn("NeuralProphet is not installed. NeuralProphet forecast will be NaN.")
+        return [np.nan] * len(forecast_dates)
+    
+    prophet_df = df.rename(columns={date_col: 'ds', value_col: 'y'})
+    
+    try:
+        model = NeuralProphet(
+            daily_seasonality=getattr(args, 'prophet_daily_seasonality', True),
+            yearly_seasonality=getattr(args, 'prophet_yearly_seasonality', True),
+            weekly_seasonality=getattr(args, 'prophet_weekly_seasonality', False),
+            changepoints_range=getattr(args, 'prophet_changepoint_prior_scale', 0.05),
+            seasonality_reg=getattr(args, 'prophet_seasonality_prior_scale', 10.0)
+        )
+        model.fit(prophet_df, freq='D')
+        future = pd.DataFrame({'ds': forecast_dates})
+        forecast = model.predict(future)
+        return forecast['yhat'].values
+    except Exception as e:
+        warnings.warn(f"NeuralProphet forecast failed: {e}. Returning NaN.")
+        return [np.nan] * len(forecast_dates)
+
+def ensemble_forecast(forecasts: Dict[str, List[float]]) -> List[float]:
+    """
+    Generate ensemble forecast by averaging available forecasts.
+    
+    Args:
+        forecasts: Dictionary of algorithm names to forecast values
+        
+    Returns:
+        List of ensemble forecasted values
+    """
+    if not forecasts:
+        return []
+    
+    # Get the length from the first forecast
+    forecast_length = len(next(iter(forecasts.values())))
+    ensemble_values = []
+    
+    for i in range(forecast_length):
+        values = []
+        for algo, forecast in forecasts.items():
+            if i < len(forecast) and not np.isnan(forecast[i]):
+                values.append(forecast[i])
+        
+        if values:
+            ensemble_values.append(np.mean(values))
+        else:
+            ensemble_values.append(np.nan)
+    
+    return ensemble_values
+
+def darts_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Timestamp], 
+                  algorithm: str = 'exponential_smoothing') -> List[float]:
+    """
+    Generate forecast using Darts library algorithms.
+    
+    Args:
+        df: Input DataFrame
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        algorithm: Darts algorithm to use
+        
+    Returns:
+        List of forecasted values (or NaN if Darts not available)
+    """
+    try:
+        from darts import TimeSeries
+        from darts.models import (
+            ExponentialSmoothing, ARIMA, AutoARIMA, Theta, 
+            LinearRegressionModel, RandomForest, XGBModel
+        )
+    except ImportError:
+        warnings.warn("Darts is not installed. Darts forecast will be NaN.")
+        return [np.nan] * len(forecast_dates)
+    
+    values = df[value_col].values
+    
+    try:
+        # Create TimeSeries object
+        ts = TimeSeries.from_values(values)
+        
+        # Select algorithm
+        if algorithm == 'exponential_smoothing':
+            model = ExponentialSmoothing()
+        elif algorithm == 'arima':
+            model = ARIMA(p=1, d=1, q=1)
+        elif algorithm == 'auto_arima':
+            model = AutoARIMA()
+        elif algorithm == 'theta':
+            model = Theta()
+        elif algorithm == 'linear_regression':
+            model = LinearRegressionModel(lags=12)
+        elif algorithm == 'random_forest':
+            model = RandomForest(lags=12)
+        elif algorithm == 'xgboost':
+            model = XGBModel(lags=12)
+        else:
+            warnings.warn(f"Unknown Darts algorithm: {algorithm}. Using ExponentialSmoothing.")
+            model = ExponentialSmoothing()
+        
+        # Fit and forecast
+        model.fit(ts)
+        forecast = model.predict(len(forecast_dates))
+        return forecast.values().flatten().tolist()
+        
+    except Exception as e:
+        warnings.warn(f"Darts {algorithm} forecast failed: {e}. Returning NaN.")
+        return [np.nan] * len(forecast_dates)
+
 def main() -> None:
     """Main entry point for the CLI tool."""
     parser = create_argument_parser()
@@ -547,24 +852,73 @@ def main() -> None:
     out_df = pd.DataFrame({date_col: all_dates})
     out_df = out_df.merge(df, on=date_col, how='left')
 
+    # Parse order parameters
+    arima_order = parse_order_parameter(args.arima_order, 3)
+    sarima_order = parse_order_parameter(args.sarima_order, 3)
+    sarima_seasonal_order = parse_order_parameter(args.sarima_seasonal_order, 4)
+
     # Compute forecasts for forecasted dates only
     sma_forecast = simple_moving_average_forecast(df, value_col, forecast_dates, args.sma_window)
     es_forecast = exponential_smoothing_forecast(df, value_col, forecast_dates, args.es_alpha)
     hw_forecast = holt_winters_forecast(df, value_col, forecast_dates, 
                                        args.hw_alpha, args.hw_beta, args.hw_gamma, args.hw_seasonal_periods)
+    arima_forecast_vals = arima_forecast(df, value_col, forecast_dates, arima_order)
+    sarima_forecast_vals = sarima_forecast(df, value_col, forecast_dates, sarima_order, sarima_seasonal_order)
+    theta_forecast_vals = theta_forecast(df, value_col, forecast_dates, args.theta_method)
     prophet_forecast_vals = prophet_forecast(df, date_col, value_col, forecast_dates, args)
+    
+    # NeuralProphet is optional
+    if getattr(args, 'neural_prophet', False):
+        neural_prophet_forecast_vals = neural_prophet_forecast(df, date_col, value_col, forecast_dates, args)
+    else:
+        neural_prophet_forecast_vals = [np.nan] * len(forecast_dates)
+    
+    # Darts forecast
+    if getattr(args, 'darts_algorithm', None):
+        darts_forecast_vals = darts_forecast(df, value_col, forecast_dates, args.darts_algorithm)
+    else:
+        darts_forecast_vals = [np.nan] * len(forecast_dates)
+    
+    # Ensemble forecast
+    if getattr(args, 'ensemble', False):
+        forecasts_dict = {
+            'sma': sma_forecast,
+            'es': es_forecast,
+            'hw': hw_forecast,
+            'arima': arima_forecast_vals,
+            'sarima': sarima_forecast_vals,
+            'theta': theta_forecast_vals,
+            'prophet': prophet_forecast_vals,
+            'neural_prophet': neural_prophet_forecast_vals,
+            'darts': darts_forecast_vals
+        }
+        ensemble_forecast_vals = ensemble_forecast(forecasts_dict)
+    else:
+        ensemble_forecast_vals = [np.nan] * len(forecast_dates)
 
     # Fill forecast columns: NaN for input dates, forecast for forecasted dates
     out_df['sma'] = np.nan
     out_df['es'] = np.nan
     out_df['hw'] = np.nan
+    out_df['arima'] = np.nan
+    out_df['sarima'] = np.nan
+    out_df['theta'] = np.nan
     out_df['prophet'] = np.nan
+    out_df['neural_prophet'] = np.nan
+    out_df['darts'] = np.nan
+    out_df['ensemble'] = np.nan
 
     forecast_mask = out_df[date_col].isin(forecast_dates)
     out_df.loc[forecast_mask, 'sma'] = sma_forecast
     out_df.loc[forecast_mask, 'es'] = es_forecast
     out_df.loc[forecast_mask, 'hw'] = hw_forecast
+    out_df.loc[forecast_mask, 'arima'] = arima_forecast_vals
+    out_df.loc[forecast_mask, 'sarima'] = sarima_forecast_vals
+    out_df.loc[forecast_mask, 'theta'] = theta_forecast_vals
     out_df.loc[forecast_mask, 'prophet'] = prophet_forecast_vals
+    out_df.loc[forecast_mask, 'neural_prophet'] = neural_prophet_forecast_vals
+    out_df.loc[forecast_mask, 'darts'] = darts_forecast_vals
+    out_df.loc[forecast_mask, 'ensemble'] = ensemble_forecast_vals
 
     # Output as CSV to stdout (for Excel graphing)
     out_df.to_csv(sys.stdout, index=False)
@@ -579,7 +933,14 @@ def main() -> None:
             # For each algorithm, sum forecasted values up to and including the milestone date
             mask = forecast_only[date_col] <= pd.Timestamp(mdate)
             print(f"{label} ({mdate}):", file=sys.stdout)
-            for algo in ['sma', 'es', 'hw', 'prophet']:
+            algorithms = ['sma', 'es', 'hw', 'arima', 'sarima', 'theta', 'prophet']
+            if getattr(args, 'neural_prophet', False):
+                algorithms.append('neural_prophet')
+            if getattr(args, 'darts_algorithm', None):
+                algorithms.append('darts')
+            if getattr(args, 'ensemble', False):
+                algorithms.append('ensemble')
+            for algo in algorithms:
                 total = forecast_only.loc[mask, algo].sum()
                 print(f"  {algo}: {total:.2f}", file=sys.stdout)
             print("", file=sys.stdout)
