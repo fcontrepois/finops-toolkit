@@ -1,6 +1,6 @@
-# anomaly_detection_forecast.py
-#
+#!/usr/bin/env python3
 # MIT License
+#
 # Copyright (c) 2025 Frank Contrepois
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,41 +20,72 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-#
-# -----------------------------------------------------------------------------
-# Documentation:
-#   This script detects anomalies in AWS cost forecasts by comparing the most recent forecast
-#   to previous periods (day before, week ago, month ago, quarter ago) for each group and method.
-#   If the percent change exceeds a user-defined threshold, an alert is printed.
-#
-#   - Supports all group types: ALL, SERVICE, LINKED_ACCOUNT, TAG (with --tag-key)
-#   - Supports all forecast methods: sma, es, prophet, or all
-#   - Prints alerts and a summary table (CSV) with columns: Group, Method, Period, Change (%), Anomaly (Y/N)
-#
-# Requirements:
-#   - Python 3
-#   - pandas
-#   - AWS CLI configured
-#   - finops-toolkit's aws/cost_and_usage.py and aws/forecast_costs.py in PATH
-#
-# Usage examples:
-#   python aws/anomaly_detection_forecast.py --threshold 20
-#   python aws/anomaly_detection_forecast.py --threshold 10 --granularity daily --metric UnblendedCost
-#   python aws/anomaly_detection_forecast.py --threshold 10 --group SERVICE
-#   python aws/anomaly_detection_forecast.py --threshold 10 --group TAG --tag-key Owner
-#   python aws/anomaly_detection_forecast.py --threshold 10 --granularity daily --metric BlendedCost --group ALL
-# -----------------------------------------------------------------------------
 
+"""
+Command Name: anomaly_detection_forecast
+
+Purpose:
+    Detects anomalies in AWS cost forecasts by comparing the most recent forecast
+    to previous periods (day before, week ago, month ago, quarter ago) for each group and method.
+    If the percent change exceeds a user-defined threshold, an alert is printed.
+
+Input Format:
+    N/A (Data Source Command - fetches from AWS API and processes forecasts)
+
+Output Format:
+    CSV with columns: Group, Method, Period, Change (%), Anomaly (Y/N)
+    - Group: Service, Account, or Tag value being analyzed
+    - Method: Forecast method used (sma, es, prophet)
+    - Period: Comparison period (Day Before Yesterday, Week Ago, Month Ago, Quarter Ago)
+    - Change (%): Percentage change from previous period
+    - Anomaly: Y if change exceeds threshold, N otherwise
+
+Error Handling:
+    - Exit code 1: Invalid arguments, data processing errors
+    - Exit code 2: File I/O errors
+    - Exit code 3: Data validation errors (insufficient data, missing columns)
+    - Exit code 4: AWS CLI not configured or missing
+
+Dependencies:
+    - AWS CLI configured with appropriate permissions
+    - pandas
+    - dateutil
+    - finops-toolkit's aws/cost_and_usage.py and aws/forecast_costs.py
+    - Python 3.8+
+
+Examples:
+    # Basic usage
+    python aws/anomaly_detection_forecast.py --threshold 20
+    
+    # With specific granularity and metric
+    python aws/anomaly_detection_forecast.py --threshold 10 --granularity daily --metric UnblendedCost
+    
+    # Group by service
+    python aws/anomaly_detection_forecast.py --threshold 10 --group SERVICE
+    
+    # Group by tag
+    python aws/anomaly_detection_forecast.py --threshold 10 --group TAG --tag-key Owner
+
+Author: Frank Contrepois
+License: MIT
+"""
+
+# Standard library imports first
 import argparse
+import csv
+import io
+import os
 import subprocess
 import sys
-import os
-import pandas as pd
-from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
 import tempfile
-import io
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple, Any
 
+# Third-party imports second
+import pandas as pd
+from dateutil.relativedelta import relativedelta
+
+# Command-specific constants
 PERIODS = [
     ("Day Before Yesterday", -2),
     ("Week Ago", -7),
@@ -71,17 +102,91 @@ GROUP_COLS = {
     "TAG": None  # Will be set to Tag:<tag_key>
 }
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Detect anomalies in AWS cost forecasts.")
-    parser.add_argument('--threshold', type=float, required=True, help='Percent change to flag as anomaly (required)')
-    parser.add_argument('--granularity', default='daily', choices=['hourly', 'daily', 'monthly'], help='Granularity (default: daily)')
-    parser.add_argument('--metric', default='UnblendedCost', help='Metric to use (default: UnblendedCost)')
-    parser.add_argument('--group', default='ALL', choices=['ALL', 'SERVICE', 'LINKED_ACCOUNT', 'TAG'], help='Group type (default: ALL)')
-    parser.add_argument('--tag-key', default=None, help='Tag key (required if group is TAG)')
-    parser.add_argument('--method', default='all', choices=['all', 'sma', 'es', 'prophet'], help='Forecast method (default: all)')
-    return parser.parse_args()
+DEFAULT_GRANULARITY = "daily"
+DEFAULT_METRIC = "UnblendedCost"
+DEFAULT_GROUP = "ALL"
+DEFAULT_METHOD = "all"
+MIN_DATA_POINTS = 10
 
-def get_dates():
+def handle_error(message: str, exit_code: int = 1) -> None:
+    """
+    Print error message and exit with specified code.
+    
+    Args:
+        message: Error message to display
+        exit_code: Exit code to use
+    """
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(exit_code)
+
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser for this command."""
+    parser = argparse.ArgumentParser(
+        description="Detect anomalies in AWS cost forecasts by comparing forecasts to previous periods",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Basic usage
+    python aws/anomaly_detection_forecast.py --threshold 20
+    
+    # With specific granularity and metric
+    python aws/anomaly_detection_forecast.py --threshold 10 --granularity daily --metric UnblendedCost
+    
+    # Group by service
+    python aws/anomaly_detection_forecast.py --threshold 10 --group SERVICE
+    
+    # Group by tag
+    python aws/anomaly_detection_forecast.py --threshold 10 --group TAG --tag-key Owner
+        """
+    )
+    
+    # Required arguments first
+    parser.add_argument(
+        '--threshold', 
+        type=float, 
+        required=True, 
+        help='Percent change to flag as anomaly (required)'
+    )
+    
+    # Optional arguments with defaults
+    parser.add_argument(
+        '--granularity', 
+        default=DEFAULT_GRANULARITY, 
+        choices=['hourly', 'daily', 'monthly'], 
+        help=f'Granularity (default: {DEFAULT_GRANULARITY})'
+    )
+    parser.add_argument(
+        '--metric', 
+        default=DEFAULT_METRIC, 
+        help=f'Metric to use (default: {DEFAULT_METRIC})'
+    )
+    parser.add_argument(
+        '--group', 
+        default=DEFAULT_GROUP, 
+        choices=['ALL', 'SERVICE', 'LINKED_ACCOUNT', 'TAG'], 
+        help=f'Group type (default: {DEFAULT_GROUP})'
+    )
+    parser.add_argument(
+        '--tag-key', 
+        default=None, 
+        help='Tag key (required if group is TAG)'
+    )
+    parser.add_argument(
+        '--method', 
+        default=DEFAULT_METHOD, 
+        choices=['all', 'sma', 'es', 'prophet'], 
+        help=f'Forecast method (default: {DEFAULT_METHOD})'
+    )
+    
+    return parser
+
+def get_dates() -> Dict[str, Any]:
+    """
+    Get date references for anomaly detection periods.
+    
+    Returns:
+        Dict mapping period names to date objects
+    """
     today = datetime.utcnow().date()
     dates = {
         "TODAY": today,
@@ -93,17 +198,44 @@ def get_dates():
     }
     return dates
 
-def run_cost_and_usage(granularity, group, metric, tag_key, start, end):
+def run_cost_and_usage(granularity: str, group: str, metric: str, tag_key: Optional[str], start: Any, end: Any) -> pd.DataFrame:
+    """
+    Run cost_and_usage.py command and return parsed data.
+    
+    Args:
+        granularity: Data granularity (hourly, daily, monthly)
+        group: Group type (ALL, SERVICE, LINKED_ACCOUNT, TAG)
+        metric: Cost metric to retrieve
+        tag_key: Tag key (required for TAG group)
+        start: Start date
+        end: End date
+        
+    Returns:
+        DataFrame with cost data
+        
+    Raises:
+        SystemExit: If cost_and_usage.py fails
+    """
     cmd = [sys.executable, 'aws/cost_and_usage.py', '--granularity', granularity, '--group', group, '--metrics', metric, '--output-format', 'csv', '--start', str(start), '--end', str(end)]
     if group == 'TAG' and tag_key:
         cmd += ['--tag-key', tag_key]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print("Error running cost_and_usage.py:", result.stderr, file=sys.stderr)
-        sys.exit(1)
+        handle_error(f"Failed to run cost_and_usage.py: {result.stderr}", 4)
     return pd.read_csv(io.StringIO(result.stdout))
 
-def run_forecast_costs(df, metric, method):
+def run_forecast_costs(df: pd.DataFrame, metric: str, method: str) -> Optional[pd.DataFrame]:
+    """
+    Run forecast_costs.py command and return parsed data.
+    
+    Args:
+        df: Input DataFrame with cost data
+        metric: Metric column name
+        method: Forecast method
+        
+    Returns:
+        DataFrame with forecast data, or None if forecast fails
+    """
     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.csv') as tmp:
         df.to_csv(tmp.name, index=False)
         cmd = [sys.executable, 'aws/forecast_costs.py', '--input', tmp.name, '--date-column', 'PeriodStart', '--value-column', metric]
@@ -113,7 +245,17 @@ def run_forecast_costs(df, metric, method):
         return None
     return pd.read_csv(io.StringIO(result.stdout))
 
-def percent_diff(a, b):
+def percent_diff(a: Any, b: Any) -> Optional[float]:
+    """
+    Calculate percentage difference between two values.
+    
+    Args:
+        a: First value
+        b: Second value (baseline)
+        
+    Returns:
+        Percentage difference, or None if calculation fails
+    """
     try:
         a = float(a)
         b = float(b)
@@ -123,20 +265,27 @@ def percent_diff(a, b):
     except Exception:
         return None
 
-def main():
-    args = parse_args()
+def main() -> None:
+    """Main entry point for the CLI tool."""
+    parser = create_argument_parser()
+    args = parser.parse_args()
+    
+    # Validate arguments
+    if args.group == 'TAG' and not args.tag_key:
+        handle_error("--tag-key is required when group is TAG", 1)
+    
     dates = get_dates()
     start = dates["QUARTER_AGO"] - timedelta(days=10)  # Get enough history
     end = dates["TODAY"]
     group_col = GROUP_COLS[args.group]
     if args.group == 'TAG':
-        if not args.tag_key:
-            print("--tag-key is required when group is TAG", file=sys.stderr)
-            sys.exit(1)
         group_col = f'Tag:{args.tag_key}'
 
     # Get cost data
     cost_df = run_cost_and_usage(args.granularity, args.group, args.metric, args.tag_key, start, end)
+    if cost_df.empty:
+        handle_error("No cost data retrieved from AWS", 3)
+    
     if args.group == 'ALL':
         groups = ['ALL']
     else:
@@ -156,7 +305,7 @@ def main():
         # Pivot to PeriodStart,Metric
         group_df = pd.DataFrame(group_df[['PeriodStart', args.metric]])
         group_df = group_df.rename(columns={args.metric: 'Value'})
-        if len(group_df) < 10:
+        if len(group_df) < MIN_DATA_POINTS:
             print(f"Skipping group {group}: not enough data ({len(group_df)} rows)")
             continue
         for method in methods:
@@ -190,8 +339,6 @@ def main():
                 })
     # Print summary table
     print("\n# Anomaly Detection Summary Table (CSV)")
-    import csv
-    import sys
     writer = csv.DictWriter(sys.stdout, fieldnames=['Group', 'Method', 'Period', 'Change (%)', 'Anomaly'])
     writer.writeheader()
     for row in summary_rows:
