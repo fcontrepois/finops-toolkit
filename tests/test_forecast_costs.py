@@ -55,10 +55,15 @@ from aws.forecast_costs import (
     get_milestone_dates,
     simple_moving_average_forecast,
     exponential_smoothing_forecast,
+    holt_winters_forecast,
     prophet_forecast,
     MIN_DATA_POINTS,
     DEFAULT_SMA_WINDOW,
-    DEFAULT_ES_ALPHA
+    DEFAULT_ES_ALPHA,
+    DEFAULT_HW_ALPHA,
+    DEFAULT_HW_BETA,
+    DEFAULT_HW_GAMMA,
+    DEFAULT_HW_SEASONAL_PERIODS
 )
 
 
@@ -113,6 +118,10 @@ class TestCreateArgumentParser:
         assert args.input is None
         assert args.sma_window == DEFAULT_SMA_WINDOW
         assert args.es_alpha == DEFAULT_ES_ALPHA
+        assert args.hw_alpha == DEFAULT_HW_ALPHA
+        assert args.hw_beta == DEFAULT_HW_BETA
+        assert args.hw_gamma == DEFAULT_HW_GAMMA
+        assert args.hw_seasonal_periods == DEFAULT_HW_SEASONAL_PERIODS
         assert args.prophet_daily_seasonality is True
         assert args.prophet_yearly_seasonality is True
         assert args.prophet_weekly_seasonality is False
@@ -284,6 +293,82 @@ class TestExponentialSmoothingForecast:
         assert isinstance(result[0], float)
 
 
+class TestHoltWintersForecast:
+    """Test the holt_winters_forecast function."""
+    
+    def test_holt_winters_forecast_sufficient_data(self):
+        """Test holt_winters_forecast with sufficient data for seasonal patterns."""
+        import pandas as pd
+        import numpy as np
+        
+        # Create data with seasonal pattern (24 data points for 12 seasonal periods)
+        values = [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210,
+                 105, 115, 125, 135, 145, 155, 165, 175, 185, 195, 205, 215]
+        df = pd.DataFrame({'value': values})
+        forecast_dates = [pd.Timestamp('2024-01-25'), pd.Timestamp('2024-01-26')]
+        
+        result = holt_winters_forecast(df, 'value', forecast_dates, 0.3, 0.1, 0.1, 12)
+        
+        # Should return a list with two forecast values
+        assert len(result) == 2
+        assert all(isinstance(x, float) for x in result)
+        assert all(not np.isnan(x) for x in result)
+    
+    def test_holt_winters_forecast_insufficient_data(self):
+        """Test holt_winters_forecast with insufficient data falls back to ES."""
+        import pandas as pd
+        
+        # Create data with less than 2 * seasonal_periods
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50]})
+        forecast_dates = [pd.Timestamp('2024-01-06')]
+        
+        result = holt_winters_forecast(df, 'value', forecast_dates, 0.3, 0.1, 0.1, 12)
+        
+        # Should return a list with one value (fallback to ES)
+        assert len(result) == 1
+        assert isinstance(result[0], float)
+    
+    def test_holt_winters_forecast_parameters(self):
+        """Test holt_winters_forecast with different parameter values."""
+        import pandas as pd
+        import numpy as np
+        
+        # Create sufficient data
+        values = [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210,
+                 105, 115, 125, 135, 145, 155, 165, 175, 185, 195, 205, 215]
+        df = pd.DataFrame({'value': values})
+        forecast_dates = [pd.Timestamp('2024-01-25')]
+        
+        # Test with different alpha, beta, gamma values
+        result1 = holt_winters_forecast(df, 'value', forecast_dates, 0.1, 0.1, 0.1, 12)
+        result2 = holt_winters_forecast(df, 'value', forecast_dates, 0.9, 0.9, 0.9, 12)
+        
+        # Both should return valid results
+        assert len(result1) == 1
+        assert len(result2) == 1
+        assert not np.isnan(result1[0])
+        assert not np.isnan(result2[0])
+        # Results should be different due to different parameters
+        assert result1[0] != result2[0]
+    
+    def test_holt_winters_forecast_seasonal_periods(self):
+        """Test holt_winters_forecast with different seasonal periods."""
+        import pandas as pd
+        import numpy as np
+        
+        # Create data for 6 seasonal periods
+        values = [100, 110, 120, 130, 140, 150, 105, 115, 125, 135, 145, 155]
+        df = pd.DataFrame({'value': values})
+        forecast_dates = [pd.Timestamp('2024-01-13')]
+        
+        result = holt_winters_forecast(df, 'value', forecast_dates, 0.3, 0.1, 0.1, 6)
+        
+        # Should return valid result
+        assert len(result) == 1
+        assert not np.isnan(result[0])
+        assert isinstance(result[0], float)
+
+
 class TestCommandLineInterface:
     """Test the command-line interface."""
     
@@ -296,6 +381,10 @@ class TestCommandLineInterface:
         assert result.returncode == 0
         assert "Forecast AWS costs using SMA, Exponential Smoothing, and Prophet" in result.stdout
         assert "--date-column" in result.stdout
+        assert "--hw-alpha" in result.stdout
+        assert "--hw-beta" in result.stdout
+        assert "--hw-gamma" in result.stdout
+        assert "--hw-seasonal-periods" in result.stdout
         assert "Examples:" in result.stdout
     
     def test_missing_required_argument(self):
@@ -326,6 +415,7 @@ class TestIntegrationTests:
         assert '# Forecast Milestone Summary' in result.stdout
         assert 'end_of_this_month' in result.stdout
         assert 'sma:' in result.stdout
+        assert 'hw:' in result.stdout
     
     def test_integration_monthly_csv(self):
         """Test integration with monthly CSV data."""
@@ -342,6 +432,27 @@ class TestIntegrationTests:
         assert '# Forecast Milestone Summary' in result.stdout
         assert 'end_of_this_month' in result.stdout
         assert 'sma:' in result.stdout
+        assert 'hw:' in result.stdout
+    
+    def test_integration_holt_winters_parameters(self):
+        """Test integration with custom Holt-Winters parameters."""
+        test_csv = os.path.join(os.path.dirname(__file__), 'input', 'daily_costs_simple.csv')
+        result = subprocess.run([
+            sys.executable, 'aws/forecast_costs.py',
+            '--input', test_csv,
+            '--date-column', 'PeriodStart',
+            '--value-column', 'UnblendedCost',
+            '--hw-alpha', '0.2',
+            '--hw-beta', '0.1',
+            '--hw-gamma', '0.1',
+            '--hw-seasonal-periods', '6',
+            '--milestone-summary'
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        assert result.returncode == 0
+        assert '# Forecast Milestone Summary' in result.stdout
+        assert 'sma:' in result.stdout
+        assert 'hw:' in result.stdout
     
     def test_integration_missing_values(self):
         """Test integration with data containing missing values."""

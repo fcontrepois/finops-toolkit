@@ -37,11 +37,12 @@ Input Format:
     - Input must have at least 10 valid (non-NaN) rows after cleaning
 
 Output Format:
-    CSV with columns: [date_column], [value_column], sma, es, prophet
+    CSV with columns: [date_column], [value_column], sma, es, hw, prophet
     - [date_column]: The date of the forecast
     - [value_column]: The actual value (if available, else NaN)
     - sma: Forecasted value using Simple Moving Average
     - es: Forecasted value using Exponential Smoothing
+    - hw: Forecasted value using Holt-Winters Triple Exponential Smoothing
     - prophet: Forecasted value using Prophet (if installed)
 
 Error Handling:
@@ -63,7 +64,7 @@ Examples:
     python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
     
     # Custom parameters
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3 --hw-alpha 0.2 --hw-beta 0.1 --hw-gamma 0.1
     
     # With milestone summary
     python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
@@ -88,6 +89,10 @@ import pandas as pd
 MIN_DATA_POINTS = 10
 DEFAULT_SMA_WINDOW = 7
 DEFAULT_ES_ALPHA = 0.5
+DEFAULT_HW_ALPHA = 0.3
+DEFAULT_HW_BETA = 0.1
+DEFAULT_HW_GAMMA = 0.1
+DEFAULT_HW_SEASONAL_PERIODS = 12
 DEFAULT_PROPHET_CHANGEPOINT_PRIOR_SCALE = 0.05
 DEFAULT_PROPHET_SEASONALITY_PRIOR_SCALE = 10.0
 
@@ -116,7 +121,7 @@ Examples:
     python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
     
     # Custom parameters
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3 --hw-alpha 0.2 --hw-beta 0.1 --hw-gamma 0.1
     
     # With milestone summary
     python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
@@ -151,6 +156,30 @@ Examples:
         type=float, 
         default=DEFAULT_ES_ALPHA, 
         help=f'Alpha for Exponential Smoothing (default: {DEFAULT_ES_ALPHA})'
+    )
+    parser.add_argument(
+        '--hw-alpha', 
+        type=float, 
+        default=DEFAULT_HW_ALPHA, 
+        help=f'Alpha for Holt-Winters level smoothing (default: {DEFAULT_HW_ALPHA})'
+    )
+    parser.add_argument(
+        '--hw-beta', 
+        type=float, 
+        default=DEFAULT_HW_BETA, 
+        help=f'Beta for Holt-Winters trend smoothing (default: {DEFAULT_HW_BETA})'
+    )
+    parser.add_argument(
+        '--hw-gamma', 
+        type=float, 
+        default=DEFAULT_HW_GAMMA, 
+        help=f'Gamma for Holt-Winters seasonal smoothing (default: {DEFAULT_HW_GAMMA})'
+    )
+    parser.add_argument(
+        '--hw-seasonal-periods', 
+        type=int, 
+        default=DEFAULT_HW_SEASONAL_PERIODS, 
+        help=f'Seasonal periods for Holt-Winters (default: {DEFAULT_HW_SEASONAL_PERIODS})'
     )
     parser.add_argument(
         '--prophet-daily-seasonality', 
@@ -391,6 +420,73 @@ def exponential_smoothing_forecast(df: pd.DataFrame, value_col: str, forecast_da
         es = alpha * v + (1 - alpha) * es
     return [es] * len(forecast_dates)
 
+def holt_winters_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Timestamp], 
+                         alpha: float, beta: float, gamma: float, seasonal_periods: int) -> List[float]:
+    """
+    Generate Holt-Winters Triple Exponential Smoothing forecast.
+    
+    Args:
+        df: Input DataFrame
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        alpha: Level smoothing parameter (0-1)
+        beta: Trend smoothing parameter (0-1)
+        gamma: Seasonal smoothing parameter (0-1)
+        seasonal_periods: Number of seasonal periods
+        
+    Returns:
+        List of forecasted values
+    """
+    values = df[value_col].values
+    n = len(values)
+    
+    # Need at least 2 * seasonal_periods for proper initialization
+    if n < 2 * seasonal_periods:
+        # Fall back to simple exponential smoothing if insufficient data
+        es = values[0]
+        for v in values[1:]:
+            es = alpha * v + (1 - alpha) * es
+        return [es] * len(forecast_dates)
+    
+    # Initialize level, trend, and seasonal components
+    level = np.zeros(n)
+    trend = np.zeros(n)
+    seasonal = np.zeros(n)
+    
+    # Initial seasonal components (average of first seasonal_periods)
+    for i in range(seasonal_periods):
+        seasonal[i] = values[i] / np.mean(values[:seasonal_periods])
+    
+    # Initial level and trend
+    level[seasonal_periods - 1] = np.mean(values[:seasonal_periods])
+    trend[seasonal_periods - 1] = (np.mean(values[seasonal_periods:2*seasonal_periods]) - 
+                                   np.mean(values[:seasonal_periods])) / seasonal_periods
+    
+    # Holt-Winters triple exponential smoothing
+    for i in range(seasonal_periods, n):
+        # Update level
+        level[i] = alpha * (values[i] / seasonal[i - seasonal_periods]) + (1 - alpha) * (level[i-1] + trend[i-1])
+        
+        # Update trend
+        trend[i] = beta * (level[i] - level[i-1]) + (1 - beta) * trend[i-1]
+        
+        # Update seasonal
+        seasonal[i] = gamma * (values[i] / level[i]) + (1 - gamma) * seasonal[i - seasonal_periods]
+    
+    # Generate forecasts
+    forecasts = []
+    last_level = level[-1]
+    last_trend = trend[-1]
+    last_seasonal = seasonal[-seasonal_periods:]
+    
+    for h in range(1, len(forecast_dates) + 1):
+        # Forecast formula: (level + h * trend) * seasonal
+        seasonal_idx = (h - 1) % seasonal_periods
+        forecast = (last_level + h * last_trend) * last_seasonal[seasonal_idx]
+        forecasts.append(forecast)
+    
+    return forecasts
+
 def prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, forecast_dates: List[pd.Timestamp], args) -> List[float]:
     """
     Generate Prophet forecast.
@@ -454,16 +550,20 @@ def main() -> None:
     # Compute forecasts for forecasted dates only
     sma_forecast = simple_moving_average_forecast(df, value_col, forecast_dates, args.sma_window)
     es_forecast = exponential_smoothing_forecast(df, value_col, forecast_dates, args.es_alpha)
+    hw_forecast = holt_winters_forecast(df, value_col, forecast_dates, 
+                                       args.hw_alpha, args.hw_beta, args.hw_gamma, args.hw_seasonal_periods)
     prophet_forecast_vals = prophet_forecast(df, date_col, value_col, forecast_dates, args)
 
     # Fill forecast columns: NaN for input dates, forecast for forecasted dates
     out_df['sma'] = np.nan
     out_df['es'] = np.nan
+    out_df['hw'] = np.nan
     out_df['prophet'] = np.nan
 
     forecast_mask = out_df[date_col].isin(forecast_dates)
     out_df.loc[forecast_mask, 'sma'] = sma_forecast
     out_df.loc[forecast_mask, 'es'] = es_forecast
+    out_df.loc[forecast_mask, 'hw'] = hw_forecast
     out_df.loc[forecast_mask, 'prophet'] = prophet_forecast_vals
 
     # Output as CSV to stdout (for Excel graphing)
@@ -479,7 +579,7 @@ def main() -> None:
             # For each algorithm, sum forecasted values up to and including the milestone date
             mask = forecast_only[date_col] <= pd.Timestamp(mdate)
             print(f"{label} ({mdate}):", file=sys.stdout)
-            for algo in ['sma', 'es', 'prophet']:
+            for algo in ['sma', 'es', 'hw', 'prophet']:
                 total = forecast_only.loc[mask, algo].sum()
                 print(f"  {algo}: {total:.2f}", file=sys.stdout)
             print("", file=sys.stdout)
