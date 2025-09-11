@@ -421,9 +421,21 @@ Examples:
 
 def main() -> None:
     """Main entry point for the CLI tool."""
-    check_aws_cli_available()  # Pre-check for AWS CLI
     parser = create_argument_parser()
-    args = parser.parse_args()
+    
+    # Parse arguments and handle help/version first
+    try:
+        args = parser.parse_args()
+    except SystemExit as e:
+        # If argparse exits (e.g., for --help), let it handle it
+        if e.code == 0:  # Help was shown successfully
+            return
+        else:
+            # Re-raise for other argument errors
+            raise
+    
+    # Now check AWS CLI after we know arguments are valid
+    check_aws_cli_available()
 
     # Error if --tag-key is used without --group TAG
     if args.tag_key and args.group != "TAG":
