@@ -1,6 +1,6 @@
-# forecast_costs.py
-#
+#!/usr/bin/env python3
 # MIT License
+#
 # Copyright (c) 2025 Frank Contrepois
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,107 +20,283 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-#
-# -----------------------------------------------------------------------------
-# Documentation:
-#   This script forecasts AWS costs using three algorithms: Simple Moving Average (SMA),
-#   Exponential Smoothing (ES), and Facebook Prophet. It outputs a CSV table to stdout
-#   with the same granularity as the input (daily or monthly), and for each forecasted
-#   date, provides a column for each algorithm. The output is suitable for graphing in Excel.
-#
-#   Requirements:
-#     - Input must have at least 10 valid (non-NaN) rows after cleaning, or the script will warn and exit.
-#     - Prophet is optional; if not installed, Prophet forecasts will be NaN and a warning will be shown.
-#     - Missing/NaN values in the value column are dropped.
-#
-#   The output columns are:
-#     - <date_column>: The date of the forecast
-#     - <value_column>: The actual value (if available, else NaN)
-#     - sma: Forecasted value using SMA (window configurable)
-#     - es: Forecasted value using Exponential Smoothing (alpha configurable)
-#     - prophet: Forecasted value using Prophet (if installed)
-#
-#   The forecast is a continuation of the input, i.e., the forecasted values start
-#   after the last date in the input and continue for the next year (365 days for daily,
-#   12 months for monthly).
-#
-#   The --milestone-summary flag prints a summary table of total forecasted values at key milestones:
-#     - End of this month
-#     - End of next month
-#     - End of next quarter
-#     - End of following quarter
-#     - End of year
-#
-# Examples of usage:
-#
-#   # 1. Forecast the next year (daily granularity) from a CSV file (default params)
-#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
-#
-#   # 2. Forecast the next year (monthly granularity) from a monthly CSV file
-#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
-#
-#   # 3. Forecast from stdin (pipe from cost_and_usage.py)
-#   python aws/cost_and_usage.py --granularity daily --output-format csv | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
-#
-#   # 4. Use custom SMA window and ES alpha
-#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3
-#
-#   # 5. Print milestone summary
-#   python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
-#
-#   # 6. Test CSVs for development are in tests/input/
-# -----------------------------------------------------------------------------
 
+"""
+Command Name: forecast_costs
+
+Purpose:
+    Forecasts AWS costs using three algorithms: Simple Moving Average (SMA),
+    Exponential Smoothing (ES), and Facebook Prophet. Outputs a CSV table to stdout
+    with the same granularity as the input (daily or monthly), and for each forecasted
+    date, provides a column for each algorithm. The output is suitable for graphing in Excel.
+
+Input Format:
+    CSV with columns: [date_column], [value_column]
+    - date_column: Date column name (e.g., PeriodStart)
+    - value_column: Value column name (e.g., UnblendedCost)
+    - Input must have at least 10 valid (non-NaN) rows after cleaning
+
+Output Format:
+    CSV with columns: [date_column], [value_column], sma, es, prophet
+    - [date_column]: The date of the forecast
+    - [value_column]: The actual value (if available, else NaN)
+    - sma: Forecasted value using Simple Moving Average
+    - es: Forecasted value using Exponential Smoothing
+    - prophet: Forecasted value using Prophet (if installed)
+
+Error Handling:
+    - Exit code 1: Invalid arguments, data processing errors
+    - Exit code 2: File I/O errors (file not found, permission denied)
+    - Exit code 3: Data validation errors (insufficient data, missing columns)
+
+Dependencies:
+    - pandas
+    - numpy
+    - prophet (optional, for Prophet forecasting)
+    - Python 3.8+
+
+Examples:
+    # Basic usage
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+    
+    # With pipe
+    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
+    
+    # Custom parameters
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3
+    
+    # With milestone summary
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+
+Author: Frank Contrepois
+License: MIT
+"""
+
+# Standard library imports first
 import argparse
-import sys
 import os
-import pandas as pd
-import numpy as np
-from datetime import timedelta
+import sys
 import warnings
+from datetime import timedelta
+from typing import Optional, Dict, Any, List, Tuple
 
-def parse_args():
+# Third-party imports second
+import numpy as np
+import pandas as pd
+
+# Command-specific constants
+MIN_DATA_POINTS = 10
+DEFAULT_SMA_WINDOW = 7
+DEFAULT_ES_ALPHA = 0.5
+DEFAULT_PROPHET_CHANGEPOINT_PRIOR_SCALE = 0.05
+DEFAULT_PROPHET_SEASONALITY_PRIOR_SCALE = 10.0
+
+def handle_error(message: str, exit_code: int = 1) -> None:
+    """
+    Print error message and exit with specified code.
+    
+    Args:
+        message: Error message to display
+        exit_code: Exit code to use
+    """
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(exit_code)
+
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser for this command."""
     parser = argparse.ArgumentParser(
-        description="Forecast AWS costs using SMA, Exponential Smoothing, and Prophet. Outputs a CSV with a column for each algorithm."
+        description="Forecast AWS costs using SMA, Exponential Smoothing, and Prophet. Outputs a CSV with a column for each algorithm.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Basic usage
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+    
+    # With pipe
+    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
+    
+    # Custom parameters
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3
+    
+    # With milestone summary
+    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+        """
     )
-    parser.add_argument('--input', required=False, help='Input CSV file. If omitted, reads from stdin.')
-    parser.add_argument('--date-column', required=True, help='Name of the date column (e.g., PeriodStart)')
-    parser.add_argument('--value-column', required=True, help='Name of the value column (e.g., UnblendedCost)')
-    parser.add_argument('--sma-window', type=int, default=7, help='Window size for Simple Moving Average (default: 7)')
-    parser.add_argument('--es-alpha', type=float, default=0.5, help='Alpha for Exponential Smoothing (default: 0.5)')
-    parser.add_argument('--prophet-daily-seasonality', type=lambda x: x.lower() == 'true', default=True, help='Prophet daily seasonality (default: True)')
-    parser.add_argument('--prophet-yearly-seasonality', type=lambda x: x.lower() == 'true', default=True, help='Prophet yearly seasonality (default: True)')
-    parser.add_argument('--prophet-weekly-seasonality', type=lambda x: x.lower() == 'true', default=False, help='Prophet weekly seasonality (default: False)')
-    parser.add_argument('--prophet-changepoint-prior-scale', type=float, default=0.05, help='Prophet changepoint prior scale (default: 0.05)')
-    parser.add_argument('--prophet-seasonality-prior-scale', type=float, default=10.0, help='Prophet seasonality prior scale (default: 10.0)')
-    parser.add_argument('--milestone-summary', action='store_true', help='Print a summary table of total forecasted values at key milestones.')
-    return parser.parse_args()
+    
+    # Required arguments first
+    parser.add_argument(
+        '--date-column', 
+        required=True, 
+        help='Name of the date column (e.g., PeriodStart)'
+    )
+    parser.add_argument(
+        '--value-column', 
+        required=True, 
+        help='Name of the value column (e.g., UnblendedCost)'
+    )
+    
+    # Optional arguments with defaults
+    parser.add_argument(
+        '--input', 
+        help='Input CSV file. If omitted, reads from stdin.'
+    )
+    parser.add_argument(
+        '--sma-window', 
+        type=int, 
+        default=DEFAULT_SMA_WINDOW, 
+        help=f'Window size for Simple Moving Average (default: {DEFAULT_SMA_WINDOW})'
+    )
+    parser.add_argument(
+        '--es-alpha', 
+        type=float, 
+        default=DEFAULT_ES_ALPHA, 
+        help=f'Alpha for Exponential Smoothing (default: {DEFAULT_ES_ALPHA})'
+    )
+    parser.add_argument(
+        '--prophet-daily-seasonality', 
+        type=lambda x: x.lower() == 'true', 
+        default=True, 
+        help='Prophet daily seasonality (default: True)'
+    )
+    parser.add_argument(
+        '--prophet-yearly-seasonality', 
+        type=lambda x: x.lower() == 'true', 
+        default=True, 
+        help='Prophet yearly seasonality (default: True)'
+    )
+    parser.add_argument(
+        '--prophet-weekly-seasonality', 
+        type=lambda x: x.lower() == 'true', 
+        default=False, 
+        help='Prophet weekly seasonality (default: False)'
+    )
+    parser.add_argument(
+        '--prophet-changepoint-prior-scale', 
+        type=float, 
+        default=DEFAULT_PROPHET_CHANGEPOINT_PRIOR_SCALE, 
+        help=f'Prophet changepoint prior scale (default: {DEFAULT_PROPHET_CHANGEPOINT_PRIOR_SCALE})'
+    )
+    parser.add_argument(
+        '--prophet-seasonality-prior-scale', 
+        type=float, 
+        default=DEFAULT_PROPHET_SEASONALITY_PRIOR_SCALE, 
+        help=f'Prophet seasonality prior scale (default: {DEFAULT_PROPHET_SEASONALITY_PRIOR_SCALE})'
+    )
+    
+    # Boolean flags
+    parser.add_argument(
+        '--milestone-summary', 
+        action='store_true', 
+        help='Print a summary table of total forecasted values at key milestones.'
+    )
+    
+    return parser
 
-def load_data(args):
-    if args.input:
-        if not os.path.isfile(args.input):
-            print(f"Error: Input file '{args.input}' does not exist or is not a file.", file=sys.stderr)
-            sys.exit(2)
-        df = pd.read_csv(args.input)
-    else:
-        if sys.stdin.isatty():
-            print("Error: No input file provided and no data piped to stdin.", file=sys.stderr)
-            sys.exit(1)
+def read_input_from_file(filepath: str) -> pd.DataFrame:
+    """
+    Read CSV data from file.
+    
+    Args:
+        filepath: Path to the input CSV file
+        
+    Returns:
+        pd.DataFrame: Parsed CSV data
+        
+    Raises:
+        SystemExit: If file doesn't exist or data is invalid
+    """
+    if not os.path.isfile(filepath):
+        handle_error(f"Input file '{filepath}' does not exist or is not a file.", 2)
+    
+    try:
+        df = pd.read_csv(filepath)
+        if df.empty:
+            handle_error("Input file is empty.", 2)
+        return df
+    except Exception as e:
+        handle_error(f"Failed to read input file: {e}", 2)
+
+def read_input_from_stdin() -> pd.DataFrame:
+    """
+    Read CSV data from stdin.
+    
+    Returns:
+        pd.DataFrame: Parsed CSV data
+        
+    Raises:
+        SystemExit: If stdin is empty or data is invalid
+    """
+    if sys.stdin.isatty():
+        handle_error("No input data provided via stdin.", 1)
+    
+    try:
         df = pd.read_csv(sys.stdin)
-    if args.date_column not in df.columns or args.value_column not in df.columns:
-        print(f"Error: Required columns not found in input.", file=sys.stderr)
-        sys.exit(2)
+        if df.empty:
+            handle_error("Input data is empty.", 1)
+        return df
+    except Exception as e:
+        handle_error(f"Failed to parse input data: {e}", 1)
+
+def validate_required_columns(df: pd.DataFrame, required_columns: List[str]) -> None:
+    """
+    Validate that DataFrame contains required columns.
+    
+    Args:
+        df: DataFrame to validate
+        required_columns: List of required column names
+        
+    Raises:
+        SystemExit: If required columns are missing
+    """
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        handle_error(f"Missing required columns: {', '.join(missing_columns)}", 3)
+
+def load_data(args) -> pd.DataFrame:
+    """
+    Load and validate input data from file or stdin.
+    
+    Args:
+        args: Parsed command line arguments
+        
+    Returns:
+        pd.DataFrame: Cleaned and validated data
+        
+    Raises:
+        SystemExit: If data validation fails
+    """
+    # Read data from file or stdin
+    if args.input:
+        df = read_input_from_file(args.input)
+    else:
+        df = read_input_from_stdin()
+    
+    # Validate required columns
+    validate_required_columns(df, [args.date_column, args.value_column])
+    
+    # Clean and process data
     df[args.date_column] = pd.to_datetime(df[args.date_column], errors='coerce')
     df = df.sort_values(args.date_column)
     df = df[[args.date_column, args.value_column]].dropna(subset=[args.date_column, args.value_column])
     df[args.value_column] = pd.to_numeric(df[args.value_column], errors='coerce')
     df = df.dropna(subset=[args.value_column])
+    
     if df.empty:
-        print("Error: No valid data after filtering and cleaning.", file=sys.stderr)
-        sys.exit(2)
+        handle_error("No valid data after filtering and cleaning.", 3)
+    
     return df
 
-def infer_granularity(df, date_col):
+def infer_granularity(df: pd.DataFrame, date_col: str) -> str:
+    """
+    Infer the granularity (daily or monthly) from the date column.
+    
+    Args:
+        df: DataFrame containing the date column
+        date_col: Name of the date column
+        
+    Returns:
+        str: 'daily' or 'monthly'
+    """
     # If all dates are first of month, treat as monthly, else daily
     days = df[date_col].dt.day.unique()
     if set(days) == {1}:
@@ -130,7 +306,17 @@ def infer_granularity(df, date_col):
         return 'monthly'
     return 'daily'
 
-def get_forecast_dates(last_date, granularity):
+def get_forecast_dates(last_date: pd.Timestamp, granularity: str) -> List[pd.Timestamp]:
+    """
+    Generate forecast dates based on granularity.
+    
+    Args:
+        last_date: Last date in the input data
+        granularity: 'daily' or 'monthly'
+        
+    Returns:
+        List of forecast dates
+    """
     dates = []
     if granularity == 'monthly':
         for i in range(1, 13):
@@ -141,8 +327,17 @@ def get_forecast_dates(last_date, granularity):
             dates.append(last_date + timedelta(days=i))
     return dates
 
-def get_milestone_dates(last_date, granularity):
-    """Return a dict of milestone labels to dates for which to sum forecasted values."""
+def get_milestone_dates(last_date: pd.Timestamp, granularity: str) -> Dict[str, Any]:
+    """
+    Return a dict of milestone labels to dates for which to sum forecasted values.
+    
+    Args:
+        last_date: Last date in the input data
+        granularity: 'daily' or 'monthly'
+        
+    Returns:
+        Dict mapping milestone labels to dates
+    """
     from pandas.tseries.offsets import MonthEnd, QuarterEnd, YearEnd
     milestones = {}
     if granularity == 'monthly':
@@ -161,18 +356,55 @@ def get_milestone_dates(last_date, granularity):
         milestones['end_of_year'] = (last_date + YearEnd(1)).date()
     return milestones
 
-def simple_moving_average_forecast(df, value_col, forecast_dates, window):
+def simple_moving_average_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Timestamp], window: int) -> List[float]:
+    """
+    Generate Simple Moving Average forecast.
+    
+    Args:
+        df: Input DataFrame
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        window: SMA window size
+        
+    Returns:
+        List of forecasted values
+    """
     last_sma = df[value_col].rolling(window=window, min_periods=1).mean().iloc[-1]
     return [last_sma] * len(forecast_dates)
 
-def exponential_smoothing_forecast(df, value_col, forecast_dates, alpha):
+def exponential_smoothing_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Timestamp], alpha: float) -> List[float]:
+    """
+    Generate Exponential Smoothing forecast.
+    
+    Args:
+        df: Input DataFrame
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        alpha: Smoothing parameter
+        
+    Returns:
+        List of forecasted values
+    """
     values = df[value_col].values
     es = values[0]
     for v in values[1:]:
         es = alpha * v + (1 - alpha) * es
     return [es] * len(forecast_dates)
 
-def prophet_forecast(df, date_col, value_col, forecast_dates, args):
+def prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, forecast_dates: List[pd.Timestamp], args) -> List[float]:
+    """
+    Generate Prophet forecast.
+    
+    Args:
+        df: Input DataFrame
+        date_col: Name of the date column
+        value_col: Name of the value column
+        forecast_dates: List of forecast dates
+        args: Command line arguments
+        
+    Returns:
+        List of forecasted values (or NaN if Prophet not available)
+    """
     try:
         from prophet import Prophet
     except ImportError:
@@ -181,6 +413,7 @@ def prophet_forecast(df, date_col, value_col, forecast_dates, args):
         except ImportError:
             warnings.warn("Prophet is not installed. Prophet forecast will be NaN.")
             return [np.nan] * len(forecast_dates)
+    
     prophet_df = df.rename(columns={date_col: 'ds', value_col: 'y'})
     model = Prophet(
         daily_seasonality=args.prophet_daily_seasonality,
@@ -196,12 +429,16 @@ def prophet_forecast(df, date_col, value_col, forecast_dates, args):
     forecast = model.predict(future)
     return forecast['yhat'].values
 
-def main():
-    args = parse_args()
+def main() -> None:
+    """Main entry point for the CLI tool."""
+    parser = create_argument_parser()
+    args = parser.parse_args()
+    
+    # Load and validate data
     df = load_data(args)
-    if len(df) < 10:
-        print("Warning: Not enough data to forecast. At least 10 dates are required.", file=sys.stderr)
-        sys.exit(3)
+    if len(df) < MIN_DATA_POINTS:
+        handle_error(f"Not enough data to forecast. At least {MIN_DATA_POINTS} dates are required.", 3)
+    
     date_col = args.date_column
     value_col = args.value_column
     granularity = infer_granularity(df, date_col)
