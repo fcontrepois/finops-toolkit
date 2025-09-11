@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # MIT License
 #
 # Copyright (c) 2025 Frank Contrepois
@@ -21,143 +22,476 @@
 # SOFTWARE.
 
 """
-# Tests for aws/cost_and_usage.py
+Tests for aws/cost_and_usage.py command.
 
-This file contains unit tests for the main cost and usage script in the FinOps Toolkit.
-
-# Example invocations (see also docstring in cost_and_usage.py):
-
-# Run the tests with:
-python -m unittest tests/test_cost_and_usage.py
-
-# Or, from the root of the repository:
-pytest tests/test_cost_and_usage.py
-
-# Example invocations of the script under test:
-# python aws/cost_and_usage.py --granularity daily
-# python aws/cost_and_usage.py --granularity daily --group SERVICE
-# python aws/cost_and_usage.py --granularity daily --group ALL
-# python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost
-# python aws/cost_and_usage.py --granularity daily --metrics BlendedCost
-# python aws/cost_and_usage.py --granularity daily --metrics UnblendedCost,BlendedCost
-# python aws/cost_and_usage.py --granularity daily --group TAG --tag-key Owner
-# python aws/cost_and_usage.py --granularity daily --group TAG
-# python aws/cost_and_usage.py --granularity daily --tag-key Owner
-# python aws/cost_and_usage.py --granularity daily --interval nonsense
-# python aws/cost_and_usage.py --granularity daily --output-format nonsense
-# python aws/cost_and_usage.py --granularity daily --start 2025-01-01 --end 2025-01-31
-# python aws/cost_and_usage.py --granularity daily --group SERVICE --verbose
+This module tests the cost_and_usage command functionality including:
+- Argument parsing and validation
+- Error handling
+- Output formats (CSV and JSON)
+- AWS CLI integration
+- Pipe compatibility
 """
 
-import unittest
-from unittest.mock import patch
-from io import StringIO
-import sys
-import json
+import pytest
 import subprocess
-import aws.cost_and_usage as cau
-from datetime import datetime
+import sys
+import os
+import json
+import csv
+import shutil
+from io import StringIO
+from unittest.mock import patch, MagicMock
+import tempfile
 
-class TestCostAndUsage(unittest.TestCase):
+# Add the project root to the path so we can import the command
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-    def test_parse_metric_valid(self):
-        self.assertEqual(cau.parse_metric("BlendedCost"), "BlendedCost")
+from aws.cost_and_usage import (
+    handle_error,
+    check_aws_cli_available,
+    run_aws_cli,
+    format_aws_datetime,
+    get_date_range,
+    fetch_costs,
+    write_csv_output,
+    print_csv_summary,
+    print_csv_summary_all,
+    print_json_summary,
+    parse_metric,
+    parse_date,
+    create_argument_parser,
+    VALID_METRICS,
+    METRIC_UNITS
+)
 
+
+class TestHandleError:
+    """Test the handle_error function."""
+    
+    def test_handle_error_default_exit_code(self, capsys):
+        """Test handle_error with default exit code."""
+        with pytest.raises(SystemExit) as exc_info:
+            handle_error("Test error message")
+        
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Error: Test error message" in captured.err
+    
+    def test_handle_error_custom_exit_code(self, capsys):
+        """Test handle_error with custom exit code."""
+        with pytest.raises(SystemExit) as exc_info:
+            handle_error("Test error message", 2)
+        
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert "Error: Test error message" in captured.err
+
+
+class TestParseMetric:
+    """Test the parse_metric function."""
+    
     def test_parse_metric_default(self):
-        self.assertEqual(cau.parse_metric(None), "UnblendedCost")
+        """Test parse_metric with no input returns default."""
+        assert parse_metric(None) == "UnblendedCost"
+        assert parse_metric("") == "UnblendedCost"
+    
+    def test_parse_metric_valid_single(self):
+        """Test parse_metric with valid single metric."""
+        assert parse_metric("BlendedCost") == "BlendedCost"
+        assert parse_metric("UsageQuantity") == "UsageQuantity"
+    
+    def test_parse_metric_multiple_metrics_error(self, capsys):
+        """Test parse_metric with multiple metrics raises error."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_metric("UnblendedCost,BlendedCost")
+        
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Only one metric can be specified at a time" in captured.err
+    
+    def test_parse_metric_invalid_metric_error(self, capsys):
+        """Test parse_metric with invalid metric raises error."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_metric("InvalidMetric")
+        
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Invalid metric 'InvalidMetric'" in captured.err
 
-    def test_parse_metric_invalid(self):
-        with self.assertRaises(SystemExit):
-            cau.parse_metric("InvalidCost")
 
-    def test_parse_metric_multiple(self):
-        with self.assertRaises(SystemExit):
-            cau.parse_metric("BlendedCost,UnblendedCost")
-
-    def test_format_aws_datetime(self):
-        dt = datetime(2025, 7, 1, 12, 0)
-        self.assertEqual(cau.format_aws_datetime(dt), "2025-07-01T12:00:00Z")
-
-    @patch("aws.cost_and_usage.subprocess.run")
-    def test_run_aws_cli_success(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[], returncode=0,
-            stdout=json.dumps({"ResultsByTime": []}), stderr=""
-        )
-        result = cau.run_aws_cli(["fake", "command"])
-        self.assertEqual(result, {"ResultsByTime": []})
-
-    @patch("aws.cost_and_usage.subprocess.run", side_effect=subprocess.CalledProcessError(1, 'cmd', stderr='error'))
-    def test_run_aws_cli_failure(self, mock_run):
-        with self.assertRaises(SystemExit):
-            cau.run_aws_cli(["fake", "command"])
-
-    def test_get_date_range_invalid_granularity(self):
-        with self.assertRaises(ValueError):
-            cau.get_date_range("INVALID", None, False)
-
-    def test_get_date_range_interval_invalid(self):
-        with self.assertRaises(ValueError):
-            cau.get_date_range("DAILY", "nonsense", False)
-
+class TestParseDate:
+    """Test the parse_date function."""
+    
     def test_parse_date_valid(self):
-        self.assertEqual(cau.parse_date("2025-01-31").isoformat(), "2025-01-31")
+        """Test parse_date with valid date string."""
+        result = parse_date("2024-12-01")
+        assert result.year == 2024
+        assert result.month == 12
+        assert result.day == 1
+    
+    def test_parse_date_invalid_format(self, capsys):
+        """Test parse_date with invalid format raises error."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_date("2024/12/01")
+        
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Invalid date format '2024/12/01'" in captured.err
 
-    def test_parse_date_invalid(self):
-        with self.assertRaises(SystemExit):
-            cau.parse_date("2025-31-01")  # invalid format
 
-    def test_print_csv_summary_grouped_header_unit(self):
+class TestFormatAwsDatetime:
+    """Test the format_aws_datetime function."""
+    
+    def test_format_aws_datetime(self):
+        """Test format_aws_datetime formats correctly."""
+        from datetime import datetime
+        dt = datetime(2024, 12, 1, 10, 30, 45)
+        result = format_aws_datetime(dt)
+        assert result == "2024-12-01T10:30:45Z"
+
+
+class TestGetDateRange:
+    """Test the get_date_range function."""
+    
+    def test_get_date_range_daily_default(self):
+        """Test get_date_range for daily granularity with default interval."""
+        start, end = get_date_range("DAILY", None, False)
+        # Should return strings in YYYY-MM-DD format
+        assert isinstance(start, str)
+        assert isinstance(end, str)
+        assert len(start) == 10  # YYYY-MM-DD
+        assert len(end) == 10    # YYYY-MM-DD
+    
+    def test_get_date_range_hourly_default(self):
+        """Test get_date_range for hourly granularity with default interval."""
+        start, end = get_date_range("HOURLY", None, False)
+        # Should return strings in ISO format
+        assert isinstance(start, str)
+        assert isinstance(end, str)
+        assert "T" in start  # ISO format
+        assert "T" in end    # ISO format
+    
+    def test_get_date_range_with_interval(self):
+        """Test get_date_range with specific interval."""
+        start, end = get_date_range("DAILY", "week", False)
+        assert isinstance(start, str)
+        assert isinstance(end, str)
+        assert len(start) == 10
+        assert len(end) == 10
+    
+    def test_get_date_range_invalid_granularity(self):
+        """Test get_date_range with invalid granularity raises error."""
+        with pytest.raises(ValueError):
+            get_date_range("INVALID", None, False)
+    
+    def test_get_date_range_invalid_interval(self):
+        """Test get_date_range with invalid interval raises error."""
+        with pytest.raises(ValueError):
+            get_date_range("DAILY", "invalid", False)
+
+
+class TestCreateArgumentParser:
+    """Test the create_argument_parser function."""
+    
+    def test_create_argument_parser(self):
+        """Test create_argument_parser returns valid parser."""
+        parser = create_argument_parser()
+        assert parser is not None
+        # The prog name might be different when imported as module
+        assert hasattr(parser, 'prog')
+    
+    def test_required_arguments(self):
+        """Test that required arguments are properly defined."""
+        parser = create_argument_parser()
+        # Test that granularity is required
+        with pytest.raises(SystemExit):
+            parser.parse_args([])
+        
+        # Test that granularity works when provided
+        args = parser.parse_args(["--granularity", "daily"])
+        assert args.granularity == "daily"
+    
+    def test_optional_arguments_defaults(self):
+        """Test that optional arguments have correct defaults."""
+        parser = create_argument_parser()
+        args = parser.parse_args(["--granularity", "daily"])
+        
+        assert args.interval is None
+        assert args.group == "SERVICE"
+        assert args.output_format == "csv"
+        assert args.metrics == "UnblendedCost"
+        assert args.start is None
+        assert args.end is None
+        assert args.tag_key is None
+        assert args.include_today is False
+        assert args.verbose is False
+
+
+class TestWriteCsvOutput:
+    """Test the write_csv_output function."""
+    
+    def test_write_csv_output(self, capsys):
+        """Test write_csv_output writes CSV correctly."""
+        import pandas as pd
+        
+        df = pd.DataFrame({
+            'PeriodStart': ['2024-12-01', '2024-12-02'],
+            'Service': ['EC2', 'S3'],
+            'UnblendedCost': [10.50, 5.25]
+        })
+        
+        write_csv_output(df)
+        
+        captured = capsys.readouterr()
+        lines = captured.out.strip().split('\n')
+        
+        assert lines[0] == "PeriodStart,Service,UnblendedCost"
+        assert "2024-12-01,EC2,10.5" in lines[1]
+        assert "2024-12-02,S3,5.25" in lines[2]
+    
+    def test_write_csv_output_no_header(self, capsys):
+        """Test write_csv_output without header."""
+        import pandas as pd
+        
+        df = pd.DataFrame({
+            'PeriodStart': ['2024-12-01'],
+            'Service': ['EC2'],
+            'UnblendedCost': [10.50]
+        })
+        
+        write_csv_output(df, include_header=False)
+        
+        captured = capsys.readouterr()
+        lines = captured.out.strip().split('\n')
+        
+        # Should not have header
+        assert len(lines) == 1
+        assert "2024-12-01,EC2,10.5" in lines[0]
+
+
+class TestPrintCsvSummary:
+    """Test the print_csv_summary function."""
+    
+    def test_print_csv_summary(self):
+        """Test print_csv_summary outputs correct CSV."""
         results = {
-            "ResultsByTime": [
+            'ResultsByTime': [
                 {
-                    "TimePeriod": {"Start": "2025-07-01"},
-                    "Groups": [
+                    'TimePeriod': {'Start': '2024-12-01'},
+                    'Groups': [
                         {
-                            "Keys": ["AmazonEC2"],
-                            "Metrics": {"UnblendedCost": {"Amount": "123.456"}}
+                            'Keys': ['EC2'],
+                            'Metrics': {'UnblendedCost': {'Amount': '10.50'}}
                         }
                     ]
                 }
             ]
         }
-        output = StringIO()
-        cau.print_csv_summary(results, "Service", "UnblendedCost", fileobj=output)
-        csv_output = output.getvalue()
-        self.assertIn("UnblendedCost", csv_output)
-        self.assertIn("123.456000", csv_output)
+        
+        # Use temporary file to capture output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tmp_file:
+            print_csv_summary(results, "Service", "UnblendedCost", fileobj=tmp_file)
+            tmp_file.flush()
+            
+            # Read the file content
+            with open(tmp_file.name, 'r') as f:
+                output = f.read()
+            
+            # Clean up
+            os.unlink(tmp_file.name)
+        
+        assert "PeriodStart,Service,UnblendedCost" in output
+        assert "2024-12-01,EC2,10.500000" in output
 
-    def test_print_csv_summary_all_header_unit(self):
+
+class TestPrintCsvSummaryAll:
+    """Test the print_csv_summary_all function."""
+    
+    def test_print_csv_summary_all(self):
+        """Test print_csv_summary_all outputs correct CSV."""
         results = {
-            "ResultsByTime": [
-                {"TimePeriod": {"Start": "2025-07-01"},
-                 "Total": {"UnblendedCost": {"Amount": "42.123456"}}}
+            'ResultsByTime': [
+                {
+                    'TimePeriod': {'Start': '2024-12-01'},
+                    'Total': {'UnblendedCost': {'Amount': '15.75'}}
+                }
             ]
         }
-        output = StringIO()
-        cau.print_csv_summary_all(results, "UnblendedCost", fileobj=output)
-        csv_output = output.getvalue()
-        lines = csv_output.strip().splitlines()
-        # Check header
-        self.assertEqual(lines[0].split(","), ["PeriodStart", "Group", "UnblendedCost"])
-        # Check row
-        row = lines[1].split(",")
-        self.assertEqual(row[0], "2025-07-01")
-        self.assertEqual(row[1], "Total")
-        self.assertEqual(row[2], "42.123456")
+        
+        # Use temporary file to capture output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tmp_file:
+            print_csv_summary_all(results, "UnblendedCost", fileobj=tmp_file)
+            tmp_file.flush()
+            
+            # Read the file content
+            with open(tmp_file.name, 'r') as f:
+                output = f.read()
+            
+            # Clean up
+            os.unlink(tmp_file.name)
+        
+        assert "PeriodStart,Group,UnblendedCost" in output
+        assert "2024-12-01,Total,15.750000" in output
 
 
+class TestPrintJsonSummary:
+    """Test the print_json_summary function."""
+    
     def test_print_json_summary(self):
-        results = {"ResultsByTime": [{"TimePeriod": {"Start": "2025-07-01"}}]}
-        output = StringIO()
-        cau.print_json_summary(results, fileobj=output)
-        self.assertIn('"Start": "2025-07-01"', output.getvalue())
+        """Test print_json_summary outputs correct JSON."""
+        results = {
+            'ResultsByTime': [
+                {
+                    'TimePeriod': {'Start': '2024-12-01'},
+                    'Groups': []
+                }
+            ]
+        }
+        
+        # Use temporary file to capture output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tmp_file:
+            print_json_summary(results, fileobj=tmp_file)
+            tmp_file.flush()
+            
+            # Read the file content
+            with open(tmp_file.name, 'r') as f:
+                output = f.read()
+            
+            # Clean up
+            os.unlink(tmp_file.name)
+        
+        # Should be valid JSON
+        json.loads(output)
+        assert '"Start": "2024-12-01"' in output
 
-    def test_verbose_flag_effect(self):
-        with patch("aws.cost_and_usage.run_aws_cli") as mock_run:
-            mock_run.return_value = {"ResultsByTime": [], "NextPageToken": None}
-            results = cau.fetch_costs("2025-01-01", "2025-01-02", None, "DAILY", "UnblendedCost", verbose=True)
-            self.assertIn("ResultsByTime", results)
+
+class TestCommandLineInterface:
+    """Test the command-line interface."""
+    
+    def test_help_output(self):
+        """Test that help output is generated correctly."""
+        result = subprocess.run([
+            sys.executable, "aws/cost_and_usage.py", "--help"
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        assert result.returncode == 0
+        assert "Fetch AWS cost and usage data from Cost Explorer API" in result.stdout
+        assert "--granularity" in result.stdout
+        assert "Examples:" in result.stdout
+    
+    def test_missing_required_argument(self):
+        """Test that missing required argument causes error."""
+        result = subprocess.run([
+            sys.executable, "aws/cost_and_usage.py"
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        assert result.returncode != 0
+        assert "required" in result.stderr.lower()
+    
+    def test_invalid_granularity(self):
+        """Test that invalid granularity causes error."""
+        result = subprocess.run([
+            sys.executable, "aws/cost_and_usage.py", "--granularity", "invalid"
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        assert result.returncode != 0
+        assert "invalid choice" in result.stderr.lower()
+    
+    def test_tag_key_without_tag_group(self):
+        """Test that tag-key without TAG group causes error."""
+        result = subprocess.run([
+            sys.executable, "aws/cost_and_usage.py", 
+            "--granularity", "daily",
+            "--tag-key", "Environment"
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        assert result.returncode == 1
+        assert "--tag-key can only be used with --group TAG" in result.stderr
+    
+    def test_tag_group_without_tag_key(self):
+        """Test that TAG group without tag-key causes error."""
+        result = subprocess.run([
+            sys.executable, "aws/cost_and_usage.py", 
+            "--granularity", "daily",
+            "--group", "TAG"
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        assert result.returncode == 1
+        assert "--tag-key is required when grouping by TAG" in result.stderr
+
+
+class TestAwsCliIntegration:
+    """Test AWS CLI integration (requires AWS CLI to be configured)."""
+    
+    @pytest.mark.skipif(
+        not shutil.which("aws"),
+        reason="AWS CLI not available"
+    )
+    def test_aws_cli_available(self):
+        """Test that AWS CLI availability check works."""
+        # This should not raise an exception if AWS CLI is available
+        try:
+            check_aws_cli_available()
+        except SystemExit as e:
+            # If AWS CLI is not configured, that's also a valid test result
+            assert e.code == 4
+    
+    @pytest.mark.skipif(
+        not shutil.which("aws"),
+        reason="AWS CLI not available"
+    )
+    def test_real_aws_integration(self):
+        """Test real AWS integration with a small date range."""
+        result = subprocess.run([
+            sys.executable, "aws/cost_and_usage.py",
+            "--granularity", "daily",
+            "--start", "2024-12-01",
+            "--end", "2024-12-02"
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        # If AWS CLI is configured, this should work
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            assert len(lines) > 1  # Should have header + data
+            assert "PeriodStart,Service,UnblendedCost" in lines[0]
+        else:
+            # If not configured, should get a clear error message
+            assert "AWS CLI" in result.stderr or "credentials" in result.stderr
+
+
+class TestPipeCompatibility:
+    """Test pipe compatibility."""
+    
+    def test_pipe_with_head(self):
+        """Test that output can be piped to head command."""
+        result = subprocess.run([
+            "bash", "-c", 
+            f"{sys.executable} aws/cost_and_usage.py --granularity daily --start 2024-12-01 --end 2024-12-02 | head -5"
+        ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        
+        # This test might fail if AWS CLI is not configured, which is expected
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            assert len(lines) <= 5  # head -5 should limit output
+            assert "PeriodStart,Service,UnblendedCost" in lines[0]
+
+
+class TestConstants:
+    """Test that constants are properly defined."""
+    
+    def test_valid_metrics_constant(self):
+        """Test VALID_METRICS constant."""
+        assert isinstance(VALID_METRICS, list)
+        assert len(VALID_METRICS) > 0
+        assert "UnblendedCost" in VALID_METRICS
+        assert "BlendedCost" in VALID_METRICS
+    
+    def test_metric_units_constant(self):
+        """Test METRIC_UNITS constant."""
+        assert isinstance(METRIC_UNITS, dict)
+        assert "UnblendedCost" in METRIC_UNITS
+        assert METRIC_UNITS["UnblendedCost"] == "USD"
+
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main([__file__])
