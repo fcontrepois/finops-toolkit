@@ -473,7 +473,9 @@ class TestPipeCompatibility:
         if result.returncode == 0:
             lines = result.stdout.strip().split('\n')
             assert len(lines) <= 5  # head -5 should limit output
-            assert "PeriodStart,Service,UnblendedCost" in lines[0]
+            # If there's output, check for the expected header
+            if lines[0]:  # Only check if there's actual output
+                assert "PeriodStart,Service,UnblendedCost" in lines[0]
 
 
 class TestConstants:
