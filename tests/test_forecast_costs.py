@@ -22,7 +22,7 @@
 # SOFTWARE.
 
 """
-Tests for aws/forecast_costs.py command.
+Tests for forecast_costs.py command.
 
 This module tests the forecast_costs command functionality including:
 - Argument parsing and validation
@@ -43,7 +43,7 @@ from unittest.mock import patch, MagicMock
 # Add the project root to the path so we can import the command
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from aws.forecast_costs import (
+from forecast import (
     handle_error,
     create_argument_parser,
     read_input_from_file,
@@ -715,7 +715,7 @@ class TestCommandLineInterface:
     def test_help_output(self):
         """Test that help output is generated correctly."""
         result = subprocess.run([
-            sys.executable, "aws/forecast_costs.py", "--help"
+            sys.executable, "forecast_costs.py", "--help"
         ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
         
         assert result.returncode == 0
@@ -737,7 +737,7 @@ class TestCommandLineInterface:
     def test_missing_required_argument(self):
         """Test that missing required argument causes error."""
         result = subprocess.run([
-            sys.executable, "aws/forecast_costs.py"
+            sys.executable, "forecast_costs.py"
         ], capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
         
         assert result.returncode != 0
@@ -751,7 +751,7 @@ class TestIntegrationTests:
         """Test integration with daily CSV data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'daily_costs_simple.csv')
         result = subprocess.run([
-            sys.executable, 'aws/forecast_costs.py',
+            sys.executable, 'forecast_costs.py',
             '--input', test_csv,
             '--date-column', 'PeriodStart',
             '--value-column', 'UnblendedCost',
@@ -771,7 +771,7 @@ class TestIntegrationTests:
         """Test integration with monthly CSV data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'monthly_costs_simple.csv')
         result = subprocess.run([
-            sys.executable, 'aws/forecast_costs.py',
+            sys.executable, 'forecast_costs.py',
             '--input', test_csv,
             '--date-column', 'PeriodStart',
             '--value-column', 'UnblendedCost',
@@ -791,7 +791,7 @@ class TestIntegrationTests:
         """Test integration with custom Holt-Winters parameters."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'daily_costs_simple.csv')
         result = subprocess.run([
-            sys.executable, 'aws/forecast_costs.py',
+            sys.executable, 'forecast_costs.py',
             '--input', test_csv,
             '--date-column', 'PeriodStart',
             '--value-column', 'UnblendedCost',
@@ -811,7 +811,7 @@ class TestIntegrationTests:
         """Test integration with new forecasting algorithms."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'daily_costs_simple.csv')
         result = subprocess.run([
-            sys.executable, 'aws/forecast_costs.py',
+            sys.executable, 'forecast_costs.py',
             '--input', test_csv,
             '--date-column', 'PeriodStart',
             '--value-column', 'UnblendedCost',
@@ -836,7 +836,7 @@ class TestIntegrationTests:
         """Test integration with data containing missing values."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_with_missing.csv')
         result = subprocess.run([
-            sys.executable, 'aws/forecast_costs.py',
+            sys.executable, 'forecast_costs.py',
             '--input', test_csv,
             '--date-column', 'PeriodStart',
             '--value-column', 'UnblendedCost',
@@ -851,7 +851,7 @@ class TestIntegrationTests:
         """Test integration with short input data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_short.csv')
         result = subprocess.run([
-            sys.executable, 'aws/forecast_costs.py',
+            sys.executable, 'forecast_costs.py',
             '--input', test_csv,
             '--date-column', 'PeriodStart',
             '--value-column', 'UnblendedCost',
@@ -866,7 +866,7 @@ class TestIntegrationTests:
         """Test integration with non-monotonic date data."""
         test_csv = os.path.join(os.path.dirname(__file__), 'input', 'costs_nonmonotonic.csv')
         result = subprocess.run([
-            sys.executable, 'aws/forecast_costs.py',
+            sys.executable, 'forecast_costs.py',
             '--input', test_csv,
             '--date-column', 'PeriodStart',
             '--value-column', 'UnblendedCost',
