@@ -50,7 +50,7 @@ Dependencies:
     - AWS CLI configured with appropriate permissions
     - pandas
     - dateutil
-    - finops-toolkit's aws/cost_and_usage.py and aws/forecast_costs.py
+    - finops-toolkit's aws/cost_and_usage.py and forecast_costs.py
     - Python 3.8+
 
 Examples:
@@ -238,7 +238,7 @@ def run_forecast_costs(df: pd.DataFrame, metric: str, method: str) -> Optional[p
     """
     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.csv') as tmp:
         df.to_csv(tmp.name, index=False)
-        cmd = [sys.executable, 'aws/forecast_costs.py', '--input', tmp.name, '--date-column', 'PeriodStart', '--value-column', metric]
+        cmd = [sys.executable, 'forecast_costs.py', '--input', tmp.name, '--date-column', 'PeriodStart', '--value-column', metric]
         result = subprocess.run(cmd, capture_output=True, text=True)
         os.unlink(tmp.name)
     if result.returncode != 0:

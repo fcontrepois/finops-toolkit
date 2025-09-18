@@ -51,7 +51,7 @@ Examples:
     python aws/cost_and_usage.py --granularity daily
     
     # With pipe
-    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py
+    python aws/cost_and_usage.py --granularity daily | python forecast_costs.py
     
     # Group by service
     python aws/cost_and_usage.py --granularity daily --group SERVICE
@@ -336,7 +336,7 @@ Examples:
     python aws/cost_and_usage.py --granularity daily
     
     # With pipe
-    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py
+    python aws/cost_and_usage.py --granularity daily | python forecast_costs.py
     
     # Group by service
     python aws/cost_and_usage.py --granularity daily --group SERVICE
