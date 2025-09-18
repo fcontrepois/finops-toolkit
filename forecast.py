@@ -33,7 +33,7 @@ Purpose:
 Input Format:
     CSV with columns: [date_column], [value_column]
     - date_column: Date column name (e.g., PeriodStart)
-    - value_column: Value column name (e.g., UnblendedCost)
+    - value_column: Value column name (e.g., Cost)
     - Input must have at least 10 valid (non-NaN) rows after cleaning
 
 Output Format:
@@ -64,16 +64,16 @@ Dependencies:
 
 Examples:
     # Basic usage
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+    python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost
     
     # With pipe
-    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
+    python aws/cost_and_usage.py --granularity daily | python forecast_costs.py --date-column PeriodStart --value-column Cost
     
     # Custom parameters
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3 --hw-alpha 0.2 --hw-beta 0.1 --hw-gamma 0.1
+    python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost --sma-window 14 --es-alpha 0.3 --hw-alpha 0.2 --hw-beta 0.1 --hw-gamma 0.1
     
     # With milestone summary
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+    python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost --milestone-summary
 
 Author: Frank Contrepois
 License: MIT
@@ -125,16 +125,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
     # Basic usage
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+    python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost
     
     # With pipe
-    python aws/cost_and_usage.py --granularity daily | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost
+    python aws/cost_and_usage.py --granularity daily | python forecast_costs.py --date-column PeriodStart --value-column Cost
     
     # Custom parameters
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --sma-window 14 --es-alpha 0.3 --hw-alpha 0.2 --hw-beta 0.1 --hw-gamma 0.1
+    python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost --sma-window 14 --es-alpha 0.3 --hw-alpha 0.2 --hw-beta 0.1 --hw-gamma 0.1
     
     # With milestone summary
-    python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+    python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost --milestone-summary
         """
     )
     
@@ -147,7 +147,7 @@ Examples:
     parser.add_argument(
         '--value-column', 
         required=True, 
-        help='Name of the value column (e.g., UnblendedCost)'
+        help='Name of the value column (e.g., Cost)'
     )
     
     # Optional arguments with defaults
@@ -218,7 +218,7 @@ Examples:
     parser.add_argument(
         '--neural-prophet', 
         action='store_true', 
-        help='Include NeuralProphet forecast (requires neuralprophet package)'
+        help='Include NeuralProphet forecast (requires neuralprophet). Install with: pip install neuralprophet'
     )
     parser.add_argument(
         '--ensemble', 
@@ -229,7 +229,7 @@ Examples:
         '--darts-algorithm', 
         type=str, 
         choices=['exponential_smoothing', 'arima', 'auto_arima', 'theta', 'linear_regression', 'random_forest', 'xgboost'],
-        help='Include Darts forecast with specified algorithm (requires darts package)'
+        help='Include Darts forecast with specified algorithm (requires u8darts). Install with: pip install u8darts'
     )
     parser.add_argument(
         '--prophet-daily-seasonality', 
@@ -603,11 +603,16 @@ def theta_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Tim
     """
     Generate Theta method forecast.
     
+    The theta method works by:
+    1. Fitting a linear trend to the data
+    2. Creating a "theta line" by applying theta transformation to the detrended series
+    3. Forecasting by combining the linear trend with the theta line
+    
     Args:
         df: Input DataFrame
         value_col: Name of the value column
         forecast_dates: List of forecast dates
-        theta: Theta parameter
+        theta: Theta parameter (typically 0.5 to 2.0)
         
     Returns:
         List of forecasted values
@@ -626,8 +631,9 @@ def theta_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Tim
     # Calculate detrended series
     detrended = values - trend
     
-    # Apply theta transformation
-    theta_series = theta * detrended + (1 - theta) * values
+    # Create theta line: apply theta transformation to detrended series
+    # The theta line should maintain the same level as the original series
+    theta_line = theta * detrended + trend
     
     # Forecast using linear extrapolation
     forecasts = []
@@ -635,8 +641,8 @@ def theta_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Tim
         # Linear trend forecast
         trend_forecast = coeffs[0] * (n + h - 1) + coeffs[1]
         
-        # Theta forecast
-        theta_forecast = theta * detrended[-1] + (1 - theta) * values[-1]
+        # Theta line forecast (extrapolate the theta line)
+        theta_forecast = theta_line[-1] + (theta_line[-1] - theta_line[-2]) if len(theta_line) > 1 else theta_line[-1]
         
         # Combine trend and theta components
         forecast = trend_forecast + (theta_forecast - trend[-1])
@@ -686,7 +692,7 @@ def prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, forecast_d
         try:
             from fbprophet import Prophet
         except ImportError:
-            warnings.warn("Prophet is not installed. Prophet forecast will be NaN.")
+            warnings.warn("[prophet-missing] Prophet is not installed. Install with: pip install prophet. Column 'prophet' will be NaN.")
             return [np.nan] * len(forecast_dates)
     
     prophet_df = df.rename(columns={date_col: 'ds', value_col: 'y'})
@@ -718,10 +724,18 @@ def neural_prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, for
     Returns:
         List of forecasted values (or NaN if NeuralProphet not available)
     """
+    # Handle constant/near-constant series by short-circuiting to a stable forecast
+    values = df[value_col].to_numpy()
+    if len(values) == 0 or len(forecast_dates) == 0:
+        return []
+    if np.allclose(values, values[0]):
+        warnings.warn("[neuralprophet-constant] Input series is constant. Using constant fallback for 'neural_prophet'.")
+        return [float(values[-1])] * len(forecast_dates)
+
     try:
         from neuralprophet import NeuralProphet
     except ImportError:
-        warnings.warn("NeuralProphet is not installed. NeuralProphet forecast will be NaN.")
+        warnings.warn("[neuralprophet-missing] NeuralProphet not installed. Install with: pip install neuralprophet (requires torch). Column 'neural_prophet' will be NaN.")
         return [np.nan] * len(forecast_dates)
     
     prophet_df = df.rename(columns={date_col: 'ds', value_col: 'y'})
@@ -739,7 +753,7 @@ def neural_prophet_forecast(df: pd.DataFrame, date_col: str, value_col: str, for
         forecast = model.predict(future)
         return forecast['yhat'].values
     except Exception as e:
-        warnings.warn(f"NeuralProphet forecast failed: {e}. Returning NaN.")
+        warnings.warn(f"[neuralprophet-failed] NeuralProphet run failed: {e}. Column 'neural_prophet' will be NaN.")
         return [np.nan] * len(forecast_dates)
 
 def ensemble_forecast(forecasts: Dict[str, List[float]]) -> List[float]:
@@ -793,7 +807,7 @@ def darts_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Tim
             LinearRegressionModel, RandomForest, XGBModel
         )
     except ImportError:
-        warnings.warn("Darts is not installed. Darts forecast will be NaN.")
+        warnings.warn("[darts-missing] Darts not installed. Install with: pip install u8darts. Column 'darts' will be NaN.")
         return [np.nan] * len(forecast_dates)
     
     values = df[value_col].values
@@ -827,7 +841,7 @@ def darts_forecast(df: pd.DataFrame, value_col: str, forecast_dates: List[pd.Tim
         return forecast.values().flatten().tolist()
         
     except Exception as e:
-        warnings.warn(f"Darts {algorithm} forecast failed: {e}. Returning NaN.")
+        warnings.warn(f"[darts-failed] Darts {algorithm} failed: {e}. Column 'darts' will be NaN.")
         return [np.nan] * len(forecast_dates)
 
 def main() -> None:

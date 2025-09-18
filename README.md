@@ -71,22 +71,22 @@ python aws/cost_and_usage.py --granularity monthly --group LINKED_ACCOUNT > cost
 #### Basic Forecasting
 
 ```bash
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost
 ```
 
 #### Advanced Forecasting with Custom Parameters
 
 ```bash
 # Holt-Winters with custom parameters
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost \
   --hw-alpha 0.3 --hw-beta 0.1 --hw-gamma 0.2 --hw-seasonal-periods 12
 
 # ARIMA with custom order
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost \
   --arima-order "2,1,2"
 
 # Include NeuralProphet and Darts algorithms
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost \
   --neural-prophet --darts-algorithm xgboost --ensemble
 ```
 
@@ -95,13 +95,13 @@ python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value
 Print a summary table of forecasted values at key milestones:
 
 ```bash
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost --milestone-summary
 ```
 
 #### Pipe from cost_and_usage.py
 
 ```bash
-python aws/cost_and_usage.py --granularity daily --output-format csv | python aws/forecast_costs.py --date-column PeriodStart --value-column UnblendedCost --milestone-summary
+python aws/cost_and_usage.py --granularity daily --output-format csv | python forecast_costs.py --date-column PeriodStart --value-column Cost --milestone-summary
 ```
 
 #### Output Format
@@ -216,18 +216,18 @@ python aws/cost_and_usage.py --granularity monthly --group SERVICE --output-form
 
 ```bash
 # Basic forecasting with all algorithms
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost
 
 # Custom Holt-Winters parameters
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost \
   --hw-alpha 0.4 --hw-beta 0.2 --hw-gamma 0.3 --hw-seasonal-periods 24
 
 # ARIMA with custom order
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost \
   --arima-order "2,1,2"
 
 # Include advanced algorithms
-python aws/forecast_costs.py --input costs.csv --date-column PeriodStart --value-column UnblendedCost \
+python forecast_costs.py --input costs.csv --date-column PeriodStart --value-column Cost \
   --neural-prophet --darts-algorithm xgboost --ensemble --milestone-summary
 ```
 
