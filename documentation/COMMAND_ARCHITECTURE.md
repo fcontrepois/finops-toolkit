@@ -107,7 +107,7 @@ Simple sequential processing:
 
 ```bash
 python aws/cost_and_usage.py --granularity daily | \
-python aws/forecast_costs.py --method sma | \
+python forecast_costs.py --method sma | \
 python aws/anomaly_detection.py --threshold 20
 ```
 
@@ -116,10 +116,10 @@ Multiple data streams processed in parallel:
 
 ```bash
 python aws/cost_and_usage.py --granularity daily --group SERVICE | \
-python aws/forecast_costs.py --method sma > service_forecasts.csv &
+python forecast_costs.py --method sma > service_forecasts.csv &
 
 python aws/cost_and_usage.py --granularity daily --group ACCOUNT | \
-python aws/forecast_costs.py --method es > account_forecasts.csv &
+python forecast_costs.py --method es > account_forecasts.csv &
 
 wait
 ```
