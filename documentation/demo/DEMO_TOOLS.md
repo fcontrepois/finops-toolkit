@@ -102,9 +102,6 @@ python demo/generate_series.py \
 
 ### Special Features
 
-#### Theoretical Column
-When `--noise 0.0`, the output includes a `theoretical` column showing the expected values that forecasting algorithms should match. This is useful for validating forecast accuracy.
-
 #### Date Handling
 - **Default**: Data ends today, starts `periods-1` time units ago
 - **With --end-date**: Data ends on specified date

@@ -69,7 +69,7 @@ def generate_dates(start_str: Optional[str], end_str: Optional[str], periods: in
     return pd.date_range(start=start, periods=periods, freq=freq)
 
 
-def build_series(args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray]:
+def build_series(args: argparse.Namespace) -> np.ndarray:
     n = args.periods
     rng = np.random.default_rng(42)
     noise_scale = args.noise
@@ -92,28 +92,21 @@ def build_series(args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray]:
     elif args.pattern == "flat":
         pass
 
-    # Store theoretical values (before noise)
-    theoretical = values.copy()
-    
     # Add multiplicative noise
     noise = rng.normal(0.0, noise_scale, size=n)
     values = values * (1.0 + noise)
-    return np.maximum(values, 0.0), theoretical
+    return np.maximum(values, 0.0)
 
 
 def main() -> None:
     args = parse_args()
     dates = generate_dates(args.start, args.end_date, args.periods, args.granularity)
-    series, theoretical = build_series(args)
+    series = build_series(args)
 
     df = pd.DataFrame({
         args.date_column: dates,
         args.value_column: series
     })
-    
-    # Add theoretical column when noise is zero
-    if args.noise == 0.0:
-        df['theoretical'] = theoretical
     
     df.to_csv(args.out, index=False)
     print(f"Wrote {len(df)} rows to {args.out}")
