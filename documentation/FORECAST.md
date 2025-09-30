@@ -26,6 +26,41 @@ python forecast.py \
   --ensemble > forecasts.csv
 ```
 
+## Pipe-first workflows (stdin/stdout)
+
+All demo tools now support piping by default. You can chain generators, transformers, and the forecaster without intermediate files.
+
+### Daily flat + toys seasonality → forecast
+```bash
+python demo/generate_series.py \
+  --pattern flat --granularity daily --periods 365 --baseline 100 --noise 0.0 \
+| python demo/add_seasonality.py --preset toys \
+| python forecast.py --date-column PeriodStart --value-column Cost --ensemble \
+> forecasts_flat_toys.csv
+```
+
+### Daily growth + holidays seasonality → forecast
+```bash
+python demo/generate_series.py \
+  --pattern upward_trend --granularity daily --periods 365 --baseline 100 --trend 0.5 --noise 0.0 \
+| python demo/add_seasonality.py --preset holidays \
+| python forecast.py --date-column PeriodStart --value-column Cost --ensemble \
+> forecasts_growth_holidays.csv
+```
+
+### Add spikes inline (example)
+```bash
+python demo/generate_series.py \
+  --pattern flat --granularity daily --periods 365 --baseline 10 --noise 0.0 \
+| python demo/add_spikes.py --max-pct 0.10 --prob 0.05 \
+| python forecast.py --date-column PeriodStart --value-column Cost --ensemble \
+> forecasts_flat_spikes_10.csv
+```
+
+Notes:
+- Omit `--input/--output/--out` to use stdin/stdout; specify them only when you want files.
+- `aws/cost_and_usage.py` and `aws/budget_analysis.py` already print to stdout and accept stdin as documented below.
+
 ## Input Requirements
 
 - **CSV format** with date and value columns
