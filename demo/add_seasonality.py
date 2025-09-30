@@ -22,14 +22,15 @@ Examples:
 """
 
 import argparse
+import sys
 import pandas as pd
 from typing import List
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Apply monthly multiplicative seasonality to a CSV series")
-    parser.add_argument("--input", required=True, help="Path to input CSV")
-    parser.add_argument("--output", required=True, help="Path to output CSV")
+    parser.add_argument("--input", help="Path to input CSV (if omitted, reads from stdin)")
+    parser.add_argument("--output", help="Path to output CSV (if omitted, writes to stdout)")
     parser.add_argument("--date-column", default="PeriodStart", help="Date column name")
     parser.add_argument("--value-column", default="Cost", help="Value column name to scale")
     parser.add_argument("--preset", choices=["toys", "holidays"], help="Preset monthly profile")
@@ -65,7 +66,11 @@ def parse_factors(s: str) -> List[float]:
 
 def main() -> None:
     args = parse_args()
-    df = pd.read_csv(args.input)
+    # Read input
+    if args.input:
+        df = pd.read_csv(args.input)
+    else:
+        df = pd.read_csv(sys.stdin)
 
     if args.value_column not in df.columns:
         raise SystemExit(f"Missing value column: {args.value_column}")
@@ -89,8 +94,10 @@ def main() -> None:
 
     df[args.value_column] = df[args.value_column].astype(float) * scale.to_numpy(dtype=float)
 
-    df.to_csv(args.output, index=False)
-    print(f"Applied seasonality; wrote {args.output}")
+    if args.output:
+        df.to_csv(args.output, index=False)
+    else:
+        df.to_csv(sys.stdout, index=False)
 
 
 if __name__ == "__main__":

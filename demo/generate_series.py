@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--value-column", default="Cost")
     parser.add_argument("--start", default=None, help="Start date (YYYY-MM-DD). Defaults to calculated start to end today.")
     parser.add_argument("--end-date", default=None, help="End date (YYYY-MM-DD). Defaults to today. If specified, start date is calculated backwards from end date.")
-    parser.add_argument("--out", required=True, help="Output CSV path")
+    parser.add_argument("--out", required=False, help="Output CSV path (if omitted, writes CSV to stdout)")
     return parser.parse_args()
 
 
@@ -101,8 +101,11 @@ def main() -> None:
         args.value_column: series
     })
     
-    df.to_csv(args.out, index=False)
-    print(f"Wrote {len(df)} rows to {args.out}")
+    if args.out:
+        df.to_csv(args.out, index=False)
+        # Avoid noisy stdout when used in pipes
+    else:
+        df.to_csv(sys.stdout, index=False)
 
 
 if __name__ == "__main__":

@@ -17,8 +17,8 @@ import pandas as pd
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Add bounded positive spikes to a CSV series")
-    parser.add_argument("--input", required=True, help="Path to input CSV")
-    parser.add_argument("--output", required=True, help="Path to output CSV")
+    parser.add_argument("--input", help="Path to input CSV (if omitted, reads from stdin)")
+    parser.add_argument("--output", help="Path to output CSV (if omitted, writes to stdout)")
     parser.add_argument("--max-pct", type=float, required=True, help="Maximum spike magnitude as fraction (e.g., 0.10 = 10%)")
     parser.add_argument("--prob", type=float, default=0.05, help="Daily probability of a spike (0..1)")
     parser.add_argument("--date-column", default="PeriodStart", help="Date column name")
@@ -31,7 +31,11 @@ def main() -> None:
     args = parse_args()
     rng = np.random.default_rng(args.seed)
 
-    df = pd.read_csv(args.input)
+    # Read input DataFrame
+    if args.input:
+        df = pd.read_csv(args.input)
+    else:
+        df = pd.read_csv(sys.stdin)
     if args.value_column not in df.columns:
         raise SystemExit(f"Missing value column: {args.value_column}")
 
@@ -43,8 +47,10 @@ def main() -> None:
     spiked[mask] = values[mask] * multipliers[mask]
     df[args.value_column] = spiked
 
-    df.to_csv(args.output, index=False)
-    print(f"Spikes applied to {int(mask.sum())} rows; wrote {args.output}")
+    if args.output:
+        df.to_csv(args.output, index=False)
+    else:
+        df.to_csv(sys.stdout, index=False)
 
 
 if __name__ == "__main__":
