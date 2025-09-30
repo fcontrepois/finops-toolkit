@@ -4,12 +4,11 @@ Generate synthetic CSV time series for forecasting demos.
 
 Usage examples:
   python demo/generate_series.py --pattern upward_trend --granularity monthly --periods 36 --noise 0.05 --out demo/input/monthly_upward.csv
-  python demo/generate_series.py --pattern seasonal --granularity daily --periods 120 --season-length 30 --amplitude 20 --baseline 100 --noise 0.1 --out demo/input/daily_seasonal.csv
+  # Note: Seasonality was removed from this generator. Use demo/add_seasonality.py to apply monthly profiles.
 
 Patterns:
   - upward_trend: linear growth with noise
   - downward_trend: linear decline with noise
-  - seasonal: seasonality + baseline + optional trend
   - step_change: baseline with sudden jump at a given index
   - spike: baseline with one-off spike on a given index
   - flat: constant baseline with noise
@@ -26,14 +25,12 @@ from typing import Optional
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate synthetic time series CSV for demos")
     parser.add_argument("--pattern", required=True, choices=[
-        "upward_trend", "downward_trend", "seasonal", "step_change", "spike", "flat"
+        "upward_trend", "downward_trend", "step_change", "spike", "flat"
     ])
     parser.add_argument("--granularity", required=True, choices=["daily", "monthly"])
     parser.add_argument("--periods", type=int, default=36)
     parser.add_argument("--baseline", type=float, default=100.0)
     parser.add_argument("--trend", type=float, default=1.0, help="Per-period change (use negative for downward)")
-    parser.add_argument("--season-length", type=int, default=12, help="Season length for seasonal pattern")
-    parser.add_argument("--amplitude", type=float, default=20.0, help="Season amplitude for seasonal pattern")
     parser.add_argument("--noise", type=float, default=0.05, help="Relative noise level, e.g., 0.05 = 5%")
     parser.add_argument("--step-index", type=int, default=None, help="Index of step change (0-based)")
     parser.add_argument("--step-size", type=float, default=50.0, help="Magnitude of step change")
@@ -79,10 +76,6 @@ def build_series(args: argparse.Namespace) -> np.ndarray:
         values += np.arange(n) * abs(args.trend)
     elif args.pattern == "downward_trend":
         values += np.arange(n) * (-abs(args.trend))
-    elif args.pattern == "seasonal":
-        t = np.arange(n)
-        seasonal = args.amplitude * np.sin(2 * np.pi * t / max(1, args.season_length))
-        values += seasonal + t * args.trend
     elif args.pattern == "step_change":
         idx = args.step_index if args.step_index is not None else n // 2
         values[idx:] += args.step_size
