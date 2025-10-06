@@ -4,6 +4,5 @@ prophet
 statsmodels
 pmdarima
 u8darts
-neuralprophet
 pytest
 matplotlib
