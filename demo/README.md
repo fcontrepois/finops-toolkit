@@ -52,16 +52,6 @@ python forecast_costs.py --date-column PeriodStart --value-column Cost --ensembl
 python demo/plot_forecasts.py --date-column PeriodStart --value-column UnblendedCost --algos sma es hw prophet ensemble --title "Piped Daily"
 ```
 
-### Suggested video beats
-
-- Baseline dataset and actuals
-- Compare **SMA** vs **ES** vs **HW** on trend
-- Add **Prophet**; toggle weekly/yearly seasonality flags
-- Show **ARIMA/SARIMA** if `statsmodels` is installed
-- Enable `--ensemble` and discuss stability/variance
-- Stress-test with step change and spike datasets
-
-Tip: Keep terminal font large, zoom the plot, and narrate flag changes.
 
 
 
