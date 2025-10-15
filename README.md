@@ -1,5 +1,7 @@
 # FinOps Toolkit: AWS Cost and Usage (and Forecasting)
 
+> **📚 Documentation**: The main documentation is now available on the [GitHub Wiki](https://github.com/fcontrepois/finops-toolkit/wiki). This includes detailed guides on architecture, coding standards, demo workflows, and tool-specific documentation.
+
 Welcome to the **FinOps Toolkit**—the only toolkit that helps you understand, predict, and perhaps even laugh at your AWS bill, all without the need for a PhD in hieroglyphics, a stiff drink, or a séance. This repository contains scripts to explore, analyse, and forecast your AWS Cost and Usage data, all from the comfort of your terminal (preferably with a cup of tea in hand).
 
 ## What Is This?
