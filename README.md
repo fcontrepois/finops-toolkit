@@ -64,7 +64,7 @@ Redirect CSV output to a file, or pipe it to your favourite spreadsheet tool:
 python aws/cost_and_usage.py --granularity monthly --group LINKED_ACCOUNT > costs.csv
 ```
 
-### 3. Forecast Future Costs
+### 3. Forecast Future Costs and Simulate Events
 
 - Input must have at least 10 valid (non-NaN) rows after cleaning, or the script will warn and exit.
 - Output is always CSV with multiple forecast columns, suitable for graphing in Excel.
@@ -104,6 +104,36 @@ python forecast_costs.py --input costs.csv --date-column PeriodStart --value-col
 
 ```bash
 python aws/cost_and_usage.py --granularity daily --output-format csv | python forecast_costs.py --date-column PeriodStart --value-column Cost --milestone-summary
+```
+
+#### Simulate marketing campaigns, outages, and seasonality
+
+You can use the time-series tools under `tools/` to shape synthetic or real
+CSV series before forecasting:
+
+```bash
+# flat baseline
+python tools/generate_series.py \
+  --pattern flat --granularity daily --periods 365 \
+  --baseline 100 --noise 0.0 --out demo/input/daily_flat.csv
+
+# add monthly seasonality
+python tools/add_seasonality.py --input demo/input/daily_flat.csv \
+  --output demo/input/daily_flat_toys.csv --preset toys
+
+# add a permanent 20% step change from May 1 onward
+python tools/add_step_change.py --input demo/input/daily_flat_toys.csv \
+  --output demo/input/daily_flat_step.csv \
+  --start-date 2025-05-01 --pct 0.2
+
+# add a 4-day marketing spike (+50%) and forecast
+python tools/add_spike.py --input demo/input/daily_flat_step.csv \
+  --output demo/input/daily_flat_step_spike.csv \
+  --start-date 2025-06-01 --length 4 --pct 0.5
+
+python forecast_costs.py --input demo/input/daily_flat_step_spike.csv \
+  --date-column PeriodStart --value-column Cost --ensemble \
+  > demo/out/daily_flat_step_spike_forecasts.csv
 ```
 
 #### Output Format

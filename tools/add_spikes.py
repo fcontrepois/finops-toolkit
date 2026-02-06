@@ -6,11 +6,12 @@ Input CSV schema (default): PeriodStart, Cost
 Output CSV schema: same as input, with Cost values spiked on random days.
 
 Examples:
-  python demo/add_spikes.py --input demo/input/daily_flat.csv --output demo/input/daily_flat_spikes_10.csv --max-pct 0.10 --prob 0.05
-  python demo/add_spikes.py --input demo/input/daily_growth.csv --output demo/input/daily_growth_spikes_20.csv --max-pct 0.20 --prob 0.05 --value-column Cost
+  python tools/add_spikes.py --input demo/input/daily_flat.csv --output demo/input/daily_flat_spikes_10.csv --max-pct 0.10 --prob 0.05
+  python tools/add_spikes.py --input demo/input/daily_growth.csv --output demo/input/daily_growth_spikes_20.csv --max-pct 0.20 --prob 0.05 --value-column Cost
 """
 
 import argparse
+import sys
 import numpy as np
 import pandas as pd
 
@@ -55,5 +56,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 
