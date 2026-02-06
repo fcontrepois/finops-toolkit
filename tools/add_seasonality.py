@@ -10,12 +10,12 @@ Presets:
   - holidays: peaks in August, December, and February
 
 Examples:
-  python demo/add_seasonality.py \
+  python tools/add_seasonality.py \
     --input demo/input/monthly_flat.csv \
     --output demo/input/monthly_flat_toys.csv \
     --preset toys --date-column PeriodStart --value-column Cost
 
-  python demo/add_seasonality.py \
+  python tools/add_seasonality.py \
     --input demo/input/monthly_flat.csv \
     --output demo/input/monthly_flat_custom.csv \
     --factors 1.0,1.05,1.02,0.98,0.95,0.97,1.00,1.10,1.03,1.05,1.20,1.30
@@ -102,7 +102,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
 

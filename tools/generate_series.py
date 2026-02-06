@@ -3,8 +3,8 @@
 Generate synthetic CSV time series for forecasting demos.
 
 Usage examples:
-  python demo/generate_series.py --pattern upward_trend --granularity monthly --periods 36 --noise 0.05 --out demo/input/monthly_upward.csv
-  # Note: Seasonality was removed from this generator. Use demo/add_seasonality.py to apply monthly profiles.
+  python tools/generate_series.py --pattern upward_trend --granularity monthly --periods 36 --noise 0.05 --out demo/input/monthly_upward.csv
+  # Note: Seasonality was removed from this generator. Use tools/add_seasonality.py to apply monthly profiles.
 
 Patterns:
   - upward_trend: linear growth with noise
@@ -100,7 +100,7 @@ def main() -> None:
         args.date_column: dates,
         args.value_column: series
     })
-    
+
     if args.out:
         df.to_csv(args.out, index=False)
         # Avoid noisy stdout when used in pipes
@@ -110,5 +110,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 

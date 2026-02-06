@@ -9,8 +9,8 @@ date, then keeps rows from that date up to N days after.
 Input CSV schema (default): PeriodStart, Cost, [forecast columns]
 
 Examples:
-  python demo/filter_forecast_horizon.py --input demo/out/daily_flat_forecasts.csv --output demo/out/daily_flat_next_month.csv --days 30
-  python demo/filter_forecast_horizon.py --input demo/out/daily_growth_forecasts.csv --output demo/out/daily_growth_next_year.csv --days 365
+  python tools/filter_forecast_horizon.py --input demo/out/daily_flat_forecasts.csv --output demo/out/daily_flat_next_month.csv --days 30
+  python tools/filter_forecast_horizon.py --input demo/out/daily_growth_forecasts.csv --output demo/out/daily_growth_next_year.csv --days 365
 """
 
 import argparse
@@ -18,7 +18,16 @@ import pandas as pd
 
 
 FORECAST_COLS = [
-    'sma','es','hw','arima','sarima','theta','prophet','neural_prophet','darts','ensemble'
+    "sma",
+    "es",
+    "hw",
+    "arima",
+    "sarima",
+    "theta",
+    "prophet",
+    "neural_prophet",
+    "darts",
+    "ensemble",
 ]
 
 
@@ -41,7 +50,8 @@ def main() -> None:
     if not set(FORECAST_COLS) & set(df.columns):
         raise SystemExit("No forecast columns found in CSV")
 
-    forecast_only = df[df[list(set(FORECAST_COLS) & set(df.columns))].notna().any(axis=1)].copy()
+    forecast_cols = list(set(FORECAST_COLS) & set(df.columns))
+    forecast_only = df[df[forecast_cols].notna().any(axis=1)].copy()
     if forecast_only.empty:
         raise SystemExit("No forecast rows found in CSV")
 
@@ -55,5 +65,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 
