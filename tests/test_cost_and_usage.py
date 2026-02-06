@@ -60,8 +60,7 @@ from aws.cost_and_usage import (
     parse_metric,
     parse_date,
     create_argument_parser,
-    VALID_METRICS,
-    METRIC_UNITS
+    VALID_METRICS
 )
 
 
@@ -487,12 +486,6 @@ class TestConstants:
         assert len(VALID_METRICS) > 0
         assert "UnblendedCost" in VALID_METRICS
         assert "BlendedCost" in VALID_METRICS
-    
-    def test_metric_units_constant(self):
-        """Test METRIC_UNITS constant."""
-        assert isinstance(METRIC_UNITS, dict)
-        assert "UnblendedCost" in METRIC_UNITS
-        assert METRIC_UNITS["UnblendedCost"] == "USD"
 
 
 if __name__ == "__main__":

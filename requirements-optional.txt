@@ -1,0 +1,9 @@
+# Optional heavy dependencies for advanced forecasting
+prophet
+statsmodels
+pmdarima
+u8darts
+matplotlib
+neuralprophet
+
+

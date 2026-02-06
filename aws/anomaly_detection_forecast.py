@@ -93,7 +93,7 @@ PERIODS = [
     ("Quarter Ago", -90)
 ]
 
-METHODS = ["sma", "es", "prophet"]
+METHODS = ["sma", "es", "hw", "arima", "sarima", "theta", "prophet", "neural_prophet", "darts", "ensemble"]
 
 GROUP_COLS = {
     "ALL": None,
@@ -291,6 +291,7 @@ def main() -> None:
     else:
         groups = cost_df[group_col].dropna().unique()
 
+    # Determine methods dynamically based on forecast output when using 'all'
     methods = METHODS if args.method == 'all' else [args.method]
     summary_rows = []
 
@@ -314,6 +315,10 @@ def main() -> None:
             if forecast_df is None or forecast_df.empty:
                 print(f"  {group} | {method}: Forecast failed or empty.")
                 continue
+            # If using 'all', constrain methods to columns actually present in forecast_df
+            if args.method == 'all':
+                available_cols = set(forecast_df.columns)
+                methods = [m for m in METHODS if m in available_cols]
             # Get forecasted values for each date
             for label, offset in PERIODS:
                 target_date = dates["YESTERDAY"]

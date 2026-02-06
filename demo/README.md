@@ -4,7 +4,7 @@ This folder helps you record short, clear videos that compare forecasting algori
 
 Directory layout:
 - `demo/input`: generated input CSVs (actuals)
-- `demo/out`: forecast CSVs and saved plots
+- `demo/out`: forecast CSVs and saved plots (ignored; not packaged)
 
 ### 1) Setup and activate
 

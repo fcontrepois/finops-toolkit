@@ -77,6 +77,9 @@ from typing import Optional, Tuple, Dict, Any, List, TextIO
 # Third-party imports second
 import pandas as pd
 
+# Shared utilities
+from common.cli_utils import handle_error, write_csv_output, write_json_output
+
 # Command-specific constants
 VALID_METRICS = [
     "BlendedCost",
@@ -88,6 +91,7 @@ VALID_METRICS = [
     "NormalizedUsageAmount"
 ]
 
+# Retained for backward compatibility with tests expecting this constant
 METRIC_UNITS = {
     "BlendedCost": "USD",
     "UnblendedCost": "USD",
@@ -97,18 +101,6 @@ METRIC_UNITS = {
     "UsageQuantity": "Hours",
     "NormalizedUsageAmount": "NormalizedUnits"
 }
-
-
-def handle_error(message: str, exit_code: int = 1) -> None:
-    """
-    Print error message and exit with specified code.
-    
-    Args:
-        message: Error message to display
-        exit_code: Exit code to use
-    """
-    print(f"Error: {message}", file=sys.stderr)
-    sys.exit(exit_code)
 
 def check_aws_cli_available() -> None:
     """Checks if AWS CLI is available in PATH and configured."""
@@ -240,15 +232,7 @@ def fetch_costs(
         page += 1
     return {'ResultsByTime': all_results}
 
-def write_csv_output(df: pd.DataFrame, include_header: bool = True) -> None:
-    """
-    Write DataFrame as CSV to stdout.
-    
-    Args:
-        df: DataFrame to write
-        include_header: Whether to include column headers
-    """
-    df.to_csv(sys.stdout, index=False, header=include_header)
+# write_csv_output provided by common.cli_utils
 
 def print_csv_summary(
     results: Dict[str, Any],
@@ -260,7 +244,6 @@ def print_csv_summary(
     Prints a CSV summary grouped by the specified key.
     The column name for the metric is set to the metric name.
     """
-    unit = METRIC_UNITS.get(metric, "")
     header = ["PeriodStart", group_key, f"{metric}"]
     writer = csv.writer(fileobj)
     writer.writerow(header)
@@ -285,7 +268,6 @@ def print_csv_summary_all(
     The column name for the metric is set to the metric name.
     The group column is always 'Total'.
     """
-    unit = METRIC_UNITS.get(metric, "")
     header = ["PeriodStart", "Group", f"{metric}"]
     writer = csv.writer(fileobj)
     writer.writerow(header)

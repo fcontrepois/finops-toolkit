@@ -127,17 +127,17 @@ The forecasting script outputs CSV with multiple columns:
 Spot those cost spikes before they spot you. For example, to flag any forecast change over 20%:
 
 ```bash
-bash aws/anomaly_detection_forecast.sh --threshold 20
+python aws/anomaly_detection_forecast.py --threshold 20
 ```
 
 Customise the detection with more options:
 
 ```bash
-bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric UnblendedCost
-bash aws/anomaly_detection_forecast.sh --threshold 15 --method es
-bash aws/anomaly_detection_forecast.sh --threshold 10 --group SERVICE
-bash aws/anomaly_detection_forecast.sh --threshold 10 --group TAG --tag-key Owner
-bash aws/anomaly_detection_forecast.sh --threshold 10 --granularity daily --metric BlendedCost --group ALL --method prophet
+python aws/anomaly_detection_forecast.py --threshold 10 --granularity daily --metric UnblendedCost
+python aws/anomaly_detection_forecast.py --threshold 15 --method es
+python aws/anomaly_detection_forecast.py --threshold 10 --group SERVICE
+python aws/anomaly_detection_forecast.py --threshold 10 --group TAG --tag-key Owner
+python aws/anomaly_detection_forecast.py --threshold 10 --granularity daily --metric BlendedCost --group ALL --method prophet
 ```
 
 ### 5. Analyze Budget Performance

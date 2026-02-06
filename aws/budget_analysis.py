@@ -86,21 +86,15 @@ from typing import Optional, Dict, Any, List, Tuple
 # Third-party imports second
 import pandas as pd
 
+# Shared utilities
+from common.cli_utils import handle_error, write_csv_output, write_json_output
+
 # Command-specific constants
 BUDGET_TYPES = ["COST", "USAGE", "RI_UTILIZATION", "RI_COVERAGE", "SAVINGS_PLANS_UTILIZATION", "SAVINGS_PLANS_COVERAGE"]
 BUDGET_TIME_UNITS = ["DAILY", "MONTHLY", "QUARTERLY", "ANNUALLY"]
 DEFAULT_THRESHOLD = 80.0
 
-def handle_error(message: str, exit_code: int = 1) -> None:
-    """
-    Print error message and exit with specified code.
-    
-    Args:
-        message: Error message to display
-        exit_code: Exit code to use
-    """
-    print(f"Error: {message}", file=sys.stderr)
-    sys.exit(exit_code)
+# handle_error provided by common.cli_utils
 
 def check_aws_cli_available() -> None:
     """Check if AWS CLI is available and configured."""
@@ -422,26 +416,9 @@ Examples:
     
     return parser
 
-def write_csv_output(df: pd.DataFrame, include_header: bool = True) -> None:
-    """
-    Write DataFrame as CSV to stdout.
-    
-    Args:
-        df: DataFrame to write
-        include_header: Whether to include column headers
-    """
-    df.to_csv(sys.stdout, index=False, header=include_header)
+# write_csv_output provided by common.cli_utils
 
-def write_json_output(data: Dict[str, Any], indent: int = 2) -> None:
-    """
-    Write data as JSON to stdout.
-    
-    Args:
-        data: Data to serialize as JSON
-        indent: JSON indentation level
-    """
-    json.dump(data, sys.stdout, indent=indent)
-    sys.stdout.write("\n")
+# write_json_output provided by common.cli_utils
 
 def main() -> None:
     """Main entry point for the CLI tool."""

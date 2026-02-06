@@ -43,7 +43,7 @@ from unittest.mock import patch, MagicMock
 # Add the project root to the path so we can import the command
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from forecast import (
+from forecast_costs import (
     handle_error,
     create_argument_parser,
     read_input_from_file,
