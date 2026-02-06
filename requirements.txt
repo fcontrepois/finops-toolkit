@@ -45,7 +45,7 @@ narwhals==2.16.0
 networkx==3.2.1
 nfoursid==1.0.2
 numba==0.60.0
-numpy==2.0.2
+numpy==1.26.4
 orjson==3.11.5
 packaging==26.0
 pandas==2.3.3
